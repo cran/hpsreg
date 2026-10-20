@@ -1,0 +1,33 @@
+Package: hpsreg
+Type: Package
+Title: Regression for Hierarchically Ordered Clinical Outcomes via
+        Pairwise Comparisons (Bradley-Terry-Davidson Model)
+Version: 1.0.0
+Authors@R: person("Ravi", "Varadhan", role = c("aut", "cre"), email = "ravi.varadhan@jhu.edu")
+Description: Provides regression for hierarchically ordered clinical
+    outcomes via pairwise comparisons, using a covariate-adjusted
+    Davidson (Bradley-Terry with ties) model with U-statistic sandwich
+    standard errors. A hierarchy of outcomes (binary, ordinal, continuous,
+    and time-to-event, with eligibility guards and tie margins) is
+    defined; all pairs of subjects are scored lexicographically; and the
+    resulting win / loss / tie data are analysed. Unadjusted win statistics
+    (net benefit, win ratio, win odds), diagnostics, and a worked example
+    based on outcomes after allogeneic stem cell transplant are also
+    provided. The computational engine is written in 'C++' using 'Rcpp'
+    and 'RcppEigen'.
+License: GPL (>= 3)
+Encoding: UTF-8
+Depends: R (>= 4.0.0)
+Imports: Rcpp (>= 1.0.0), stats, graphics
+LinkingTo: Rcpp, RcppEigen
+Suggests: knitr, rmarkdown, testthat (>= 3.0.0), survival, gnm
+VignetteBuilder: knitr
+SystemRequirements: OpenMP (optional)
+Config/testthat/edition: 3
+RoxygenNote: 7.3.3
+NeedsCompilation: yes
+Packaged: 2026-10-08 18:24:04 UTC; raviv
+Author: Ravi Varadhan [aut, cre]
+Maintainer: Ravi Varadhan <ravi.varadhan@jhu.edu>
+Repository: CRAN
+Date/Publication: 2026-10-20 17:50:14 UTC

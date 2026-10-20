@@ -1,0 +1,263 @@
+---
+title: "Getting started with hpsreg"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting started with hpsreg}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>",
+                      fig.width = 6, fig.height = 4, out.width = "90%")
+set.seed(1)
+```
+
+## What this package does
+
+`hpsreg` fits a covariate-adjusted Bradley-Terry-Davidson model to
+*hierarchically ordered clinical outcomes*. Instead of picking one endpoint,
+you list outcomes in order of clinical priority. Each pair of subjects is
+compared level by level; the first level that separates them decides the pair.
+Only pairs that tie at every level count as ties.
+
+The workflow has three stages:
+
+1. **Design** a hierarchy of outcomes with `hierarchy()` and the `lvl_*()`
+   constructors.
+2. **Score** every pair of subjects with `score_pairs()`.
+3. **Estimate** covariate effects with `btd()`.
+
+```{r}
+library(hpsreg)
+```
+
+## Example data
+
+`simulate_hps()` returns a synthetic stem-cell transplant cohort with the same
+column layout as a typical registry extract. The workflow below is identical
+for real data with columns of the same type.
+
+```{r}
+dat <- simulate_hps(N = 200, seed = 11)
+str(dat, list.len = 6)
+```
+
+## Design a hierarchy
+
+Levels are listed from highest to lowest priority. `lvl_tte()` compares
+time-to-event columns, `lvl_ordinal()` and `lvl_binary()` handle categorical
+outcomes, and `lvl_continuous()` handles continuous scores. The `when =` guard
+limits a level to subjects that meet a condition (used here so the GVHD
+resolution comparison only applies to subjects who had GVHD).
+
+```{r}
+h <- hierarchy(
+  lvl_tte("death_day",   better = "later", name = "survival"),
+  lvl_tte("relapse_day", better = "later", name = "relapse"),
+  lvl_ordinal("gvhd_grade", better = "lower", name = "GVHD grade"),
+  lvl_binary("gvhd_resolved", favorable = 1,
+             when = "gvhd_grade > 0", name = "GVHD resolution")
+)
+h
+```
+
+`hps_hierarchy()` returns the fuller transplant hierarchy used in the
+transplant examples, adding GVHD onset and infection levels.
+
+### Censoring in time-to-event levels
+
+For `lvl_tte()` levels, a subject whose event has not yet been observed
+(right-censored) is compared with the other subject using the Gehan rule: if
+the event time is beyond the censoring time, the pair is uninformative at that
+level and passes to the next one. The package tracks these pairs, and
+`summary()` reports what fraction of tied pairs are tied because of censoring
+rather than genuine equivalence:
+
+```
+Ties: 19.7% of pairs, of which 82% pure and 18% censoring
+```
+
+Heavy censoring weakens the survival level and pushes more discrimination onto
+the lower levels. The Gehan rule is conservative under heavy censoring; IPCW
+(Peron) scoring is not implemented.
+
+## Score the pairs
+
+`score_pairs()` enumerates every pair of subjects and scores it against the
+hierarchy. The compiled kernel exits at the first separating level, and the
+`resolution()` summary shows where the discrimination comes from.
+
+```{r}
+pw <- score_pairs(h, dat)
+pw
+resolution(pw)
+```
+
+In this cohort survival is the decisive level for most pairs, and only a small
+fraction reach the GVHD-resolution comparison. Those remaining pairs are the
+ones that determine the tie parameter.
+
+The scored object `pw` can be reused across as many covariate models as you
+like — scoring is the only step that depends on the hierarchy. This is why
+`btd()` accepts `pairs` separately from `hierarchy`: score once, then fit
+`~ donor_type`, `~ donor_type + age`, `~ donor_type + age + dri`, and compare
+without rescoring.
+
+## Unadjusted win statistics
+
+`win_stats()` is the descriptive companion to the model: the net benefit, win
+ratio, and win odds for one arm against another, with a per-level breakdown of
+where the wins and losses come from. It takes either scored pairs or a
+hierarchy, and needs a grouping variable.
+
+```{r}
+win_stats(pw, dat$year)
+```
+
+Passing the hierarchy directly is convenient when you have not scored yet:
+
+```{r}
+win_stats(h, dat$year, data = dat)
+```
+
+The overall advantage is concentrated at the survival and relapse levels, not
+in the GVHD levels.
+
+## Fit the model
+
+`btd()` fits the covariate-adjusted model. Each coefficient is the log of the
+multiplicative effect of a one-unit increase in the covariate on the subject's
+*worth*; positive values mean a better position in the hierarchy. The intercept
+is dropped because it is not identifiable from pairwise differences.
+
+```{r}
+fit <- btd(~ donor_type + age + dri, data = dat, pairs = pw)
+summary(fit)
+```
+
+You can also let `btd()` score the pairs for you by passing `hierarchy = h`
+instead of `pairs = pw`. For small cohorts the two give identical estimates.
+
+```{r}
+fit2 <- btd(~ donor_type + age + dri, data = dat, hierarchy = h)
+all.equal(coef(fit), coef(fit2))
+```
+
+`data` must be the same data frame (same rows, same order) that was scored.
+`btd()` checks the row count against `pairs$N` and errors if they differ, but
+it cannot detect a reordered frame — the row *indices* in `pw` would point at
+the wrong subjects. If you subset or reorder, rescore.
+
+### Interpreting `delta`
+
+Every `summary(fit)` prints a `delta` value and its log. These describe the
+model's *tie propensity* — a weight on the probability that a pair ties,
+independent of the covariate effects. It is not a probability: `delta = 0.49`
+means the tie term contributes roughly half as much as an even-matched win,
+and `delta = 0` reduces the model to ordinary Bradley-Terry (used
+automatically when there are no tied pairs). Use `btd_calibration()` to check
+whether a single `delta` fits all levels.
+
+### Standard errors
+
+The default standard errors are sandwich (robust) estimates that account for
+the dependence between pairs sharing a subject. The model-based values, which
+assume independent pairs and are typically too small, are available for
+reference:
+
+```{r}
+cbind(sandwich = sqrt(diag(vcov(fit))),
+      model    = sqrt(diag(vcov(fit, model = TRUE))))
+```
+
+`confint(fit)` returns Wald intervals for the coefficients (but not for
+`log_delta`). `nobs(fit)` is the number of pairs — `N(N-1)/2` for a complete
+set — not the number of subjects; the subject count is `fit$n_subjects`.
+
+## Prediction and calibration
+
+`predict()` returns the latent score (log-worth) for each subject, and
+`btd_pair_probs()` returns response-scale probabilities for pairs.
+
+```{r}
+predict(fit, dat[1:3, ])
+btd_pair_probs(fit, dat[1:3, ], dat[4:6, ])
+```
+
+`btd_calibration()` compares observed and predicted win shares, by hierarchy
+level or by bin of the latent difference. In a well-calibrated hierarchy the
+two sets of points lie on top of each other. Observed consistently above
+predicted at the lower levels would suggest the hierarchy discriminates those
+pairs more sharply than a single latent scale allows.
+
+```{r fig.height = 3.5}
+btd_calibration(fit, by = "level")
+plot(btd_calibration(fit, by = "level"))
+```
+
+## Large cohorts
+
+Every pair is scored, so `N = 10000` means about 50 million pairs. `btd()`
+offers three storage modes, chosen automatically based on `N`:
+
+* `"stored"` — keeps all pairs explicitly; fastest for small `N`.
+* `"compact"` — scores pairs once into a one-byte code; about 50 MB at
+  `N = 10000`.
+* `"stream"` — re-scores pairs in each pass and stores nothing proportional
+  to the number of pairs.
+
+All three give the same estimates up to numerical precision. The mode actually
+used is reported in the fit summary.
+
+```{r eval = FALSE}
+fit <- btd(~ donor_type + age, data = dat, hierarchy = h, storage = "compact")
+```
+
+`score_pairs()` refuses to hold more than `max_pairs` (default 5e7, about
+N = 10,000) pairs at once. For larger N, either raise `max_pairs`, sample with
+`sample_pairs()`, or pass the hierarchy directly to `btd()` — the compact and
+streaming engines score pairs on the fly and never materialise the full set.
+
+### Threads
+
+The engine is parallelised across pairs with OpenMP when the build supports
+it. Results are bitwise identical regardless of thread count — threads only
+change runtime. `openmp_threads()` reports how many threads the build can use;
+`0` means OpenMP is not available (stock macOS toolchains, for example), in
+which case everything runs serially.
+
+```{r}
+openmp_threads()
+```
+
+Set the thread count per call or globally:
+
+```{r eval = FALSE}
+fit_mt <- btd(~ donor_type + age, data = dat, hierarchy = h,
+              control = btd_control(threads = 4))
+
+options(hpsreg.threads = 4)          # applies to every subsequent call
+fit_mt2 <- btd(~ donor_type + age, data = dat, hierarchy = h)
+all.equal(coef(fit_mt), coef(fit_mt2))
+```
+
+## Citation
+
+If you use `hpsreg` in published work, please cite:
+
+> Varadhan R. *Hierarchical Pairwise Scoring: A Regression Framework for
+> Composite Outcomes, with Application to Hematopoietic Stem Cell
+> Transplantation.* Manuscript in preparation, 2026.
+
+The same reference is available from R with `citation("hpsreg")`.
+
+## Where to go next
+
+* `?btd` for the full argument list and the returned object.
+* `?hierarchy`, `?lvl_binary`, `?lvl_ordinal`, `?lvl_continuous`, `?lvl_tte`
+  for the hierarchy constructors.
+* `?score_pairs`, `?resolution` for the scoring layer.
+* `?win_stats`, `?btd_calibration`, `?btd_pair_probs` for post-fit summaries.
+
+

@@ -1,0 +1,167 @@
+---
+title: "Hierarchical outcomes after stem cell transplant: a worked example"
+output: html_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+library(hpsreg)
+```
+
+## Idea
+
+Patients after allogeneic transplant experience several outcomes of unequal importance.
+Instead of collapsing them into one composite event, a *hierarchy* ranks the outcomes:
+for any two patients the first level that separates them decides who did better.
+`hpsreg` has three stages: **design** the hierarchy, **score** all pairs, **estimate**.
+
+## 1. Data
+
+```{r data}
+dat <- simulate_hps(N = 613, seed = 20241003)
+dim(dat)
+head(dat[, c("donor_type", "age", "dri", "death_day", "relapse_day", "gvhd_grade")])
+```
+
+`NA` in a `*_day` column means the event did not occur by day 180.
+
+## 2. Design the hierarchy from the data-frame variables
+
+Survival, then relapse, then GVHD (grade, then resolution, then onset), then infection.
+Each level names a column of `dat` and states which direction is favourable.
+
+* `lvl_tte()` reads "time of the event, `NA` if it did not occur", so a patient with no
+  death is better than any patient who died, and a later death is better than an earlier one.
+* `lvl_group()` bundles several comparisons into one reported level.
+* `when = "..."` is an eligibility guard: resolution and onset are compared only between
+  patients who had GVHD (pairs where either patient is ineligible pass to the next level).
+
+```{r hier-scratch}
+h <- hierarchy(
+  lvl_tte("death_day",   better = "later", name = "survival"),
+  lvl_tte("relapse_day", better = "later", name = "relapse"),
+  lvl_group("GVHD",
+    lvl_ordinal("gvhd_grade", better = "lower", name = "grade"),
+    lvl_binary("gvhd_resolved", favorable = 1, when = "gvhd_grade > 0",
+               name = "resolution"),
+    lvl_continuous("gvhd_onset_day", better = "higher", when = "gvhd_grade > 0",
+                   name = "onset")),
+  lvl_group("infection",
+    lvl_ordinal("infection_grade", better = "lower", name = "grade"),
+    lvl_binary("infection_resolved", favorable = 1, when = "infection_grade > 0",
+               name = "resolution"))
+)
+h
+```
+
+The package ships this hierarchy as `hps_hierarchy()`; the two are identical:
+
+```{r hier-shortcut}
+identical(score_pairs(h, dat)$W, score_pairs(hps_hierarchy(), dat)$W)
+```
+
+## 3. Score pairs
+
+```{r score}
+pw <- score_pairs(h, dat)
+pw
+resolution(pw)
+resolution(pw, by = "leaf")
+```
+
+## 4. Covariate-adjusted analysis
+
+`btd()` can use the pairs computed above (`pairs = pw`), so several covariate models share
+one scoring pass, or it can score them itself (`hierarchy = h`).
+
+```{r fit}
+fit <- btd(~ donor_type + age + dri + hct_ci + sex_mismatch + year +
+             conditioning + cell_source, data = dat, pairs = pw)
+summary(fit)
+```
+
+```{r fit-inline}
+fit_inline <- btd(~ donor_type + age, data = dat, hierarchy = h)   # scores internally
+fit_reuse  <- btd(~ donor_type + age, data = dat, pairs = pw)      # reuses pw
+all.equal(coef(fit_inline), coef(fit_reuse))
+```
+
+Positive coefficients mean a better position in the hierarchy. Standard errors are
+sandwich estimates that account for each patient appearing in many pairs.
+
+## 5. Comparison with a composite Cox analysis
+
+The conventional analysis uses the composite m-GRFS event. A Cox log hazard ratio has the
+opposite orientation (higher hazard = worse), so we compare with the sign reversed.
+
+```{r cox}
+covars <- c("donor_type", "age", "dri", "hct_ci", "sex_mismatch", "year",
+            "conditioning", "cell_source")
+cx <- hps_cox_grfs(dat, covars)
+cmp <- data.frame(term = names(coef(fit)),
+                  btd = unname(coef(fit)), btd_se = sqrt(diag(vcov(fit))),
+                  neg_cox = -unname(cx$coef), cox_se = unname(cx$se))
+cmp[-1] <- round(cmp[-1], 3)
+cmp
+```
+
+## 6. Unadjusted win statistics and diagnostics
+
+```{r win}
+win_stats(pw, dat$year)
+```
+
+Does one latent scale describe all levels? Among pairs decided at each level, the
+observed win rate should match the model's prediction.
+
+```{r calib}
+btd_calibration(fit)
+btd_calibration(fit, by = "bin", n_bins = 5)
+```
+
+## 7. Other endpoint types
+
+The hierarchy module does not know about transplant. A trial with a censored
+time-to-event endpoint, an ordinal score, a continuous marker with a clinically
+meaningful margin, and a binary event:
+
+```{r other}
+set.seed(1)
+n <- 150
+trial <- data.frame(
+  arm    = rep(c("control", "treatment"), each = n / 2),
+  age    = round(rnorm(n, 60, 8)),
+  time   = rexp(n, 0.02), cens = runif(n, 20, 120)
+)
+trial$status <- as.integer(trial$time <= trial$cens)
+trial$time   <- pmin(trial$time, trial$cens)
+trial$score  <- sample(0:3, n, TRUE, prob = c(.4, .3, .2, .1))
+trial$marker <- rnorm(n, 10 - (trial$arm == "treatment"), 2)
+trial$ae     <- rbinom(n, 1, 0.3)
+
+h2 <- hierarchy(
+  lvl_tte("time", status = "status", better = "later", name = "OS"),
+  lvl_ordinal("score", better = "lower", name = "severity"),
+  lvl_continuous("marker", better = "lower", threshold = 1, name = "marker"),
+  lvl_binary("ae", favorable = 0, name = "no adverse event")
+)
+pw2 <- score_pairs(h2, trial)
+pw2
+resolution(pw2)
+win_stats(pw2, trial$arm, treatment = "treatment")
+```
+
+Pairs whose ordering is unknown because of censoring are passed to the next level and flagged
+(`pw2$uninf`). This Gehan-type rule is biased toward the null under heavy censoring.
+
+```{r other-fit}
+summary(btd(~ I(arm == "treatment") + age, trial, pairs = pw2))
+```
+
+## 8. Custom levels
+
+```{r custom}
+by_sign <- function(data, i, j) sign(data$marker[j] - data$marker[i])
+h3 <- hierarchy(lvl_binary("ae", favorable = 0), lvl_custom(by_sign, "marker (R function)"))
+resolution(score_pairs(h3, trial))
+```

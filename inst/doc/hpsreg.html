@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+
+<meta charset="utf-8" />
+<meta name="generator" content="pandoc" />
+<meta http-equiv="X-UA-Compatible" content="IE=EDGE" />
+
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+
+
+<title>Getting started with hpsreg</title>
+
+<script>// Pandoc 2.9 adds attributes on both header and div. We remove the former (to
+// be compatible with the behavior of Pandoc < 2.8).
+document.addEventListener('DOMContentLoaded', function(e) {
+  var hs = document.querySelectorAll("div.section[class*='level'] > :first-child");
+  var i, h, a;
+  for (i = 0; i < hs.length; i++) {
+    h = hs[i];
+    if (!/^h[1-6]$/i.test(h.tagName)) continue;  // it should be a header h1-h6
+    a = h.attributes;
+    while (a.length > 0) h.removeAttribute(a[0].name);
+  }
+});
+</script>
+
+<style type="text/css">
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+span.underline{text-decoration: underline;}
+div.column{display: inline-block; vertical-align: top; width: 50%;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+</style>
+
+
+
+<style type="text/css">
+code {
+white-space: pre;
+}
+.sourceCode {
+overflow: visible;
+}
+</style>
+<style type="text/css" data-origin="pandoc">
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+{ counter-reset: source-line 0; }
+pre.numberSource code > span
+{ position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+{ content: counter(source-line);
+position: relative; left: -1em; text-align: right; vertical-align: baseline;
+border: none; display: inline-block;
+-webkit-touch-callout: none; -webkit-user-select: none;
+-khtml-user-select: none; -moz-user-select: none;
+-ms-user-select: none; user-select: none;
+padding: 0 4px; width: 4em;
+color: #aaaaaa;
+}
+pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa; padding-left: 4px; }
+div.sourceCode
+{ }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+code span.al { color: #ff0000; font-weight: bold; } 
+code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.at { color: #7d9029; } 
+code span.bn { color: #40a070; } 
+code span.bu { color: #008000; } 
+code span.cf { color: #007020; font-weight: bold; } 
+code span.ch { color: #4070a0; } 
+code span.cn { color: #880000; } 
+code span.co { color: #60a0b0; font-style: italic; } 
+code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.do { color: #ba2121; font-style: italic; } 
+code span.dt { color: #902000; } 
+code span.dv { color: #40a070; } 
+code span.er { color: #ff0000; font-weight: bold; } 
+code span.ex { } 
+code span.fl { color: #40a070; } 
+code span.fu { color: #06287e; } 
+code span.im { color: #008000; font-weight: bold; } 
+code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.kw { color: #007020; font-weight: bold; } 
+code span.op { color: #666666; } 
+code span.ot { color: #007020; } 
+code span.pp { color: #bc7a00; } 
+code span.sc { color: #4070a0; } 
+code span.ss { color: #bb6688; } 
+code span.st { color: #4070a0; } 
+code span.va { color: #19177c; } 
+code span.vs { color: #4070a0; } 
+code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } 
+</style>
+<script>
+// apply pandoc div.sourceCode style to pre.sourceCode instead
+(function() {
+  var sheets = document.styleSheets;
+  for (var i = 0; i < sheets.length; i++) {
+    if (sheets[i].ownerNode.dataset["origin"] !== "pandoc") continue;
+    try { var rules = sheets[i].cssRules; } catch (e) { continue; }
+    var j = 0;
+    while (j < rules.length) {
+      var rule = rules[j];
+      // check if there is a div.sourceCode rule
+      if (rule.type !== rule.STYLE_RULE || rule.selectorText !== "div.sourceCode") {
+        j++;
+        continue;
+      }
+      var style = rule.style.cssText;
+      // check if color or background-color is set
+      if (rule.style.color === '' && rule.style.backgroundColor === '') {
+        j++;
+        continue;
+      }
+      // replace div.sourceCode by a pre.sourceCode rule
+      sheets[i].deleteRule(j);
+      sheets[i].insertRule('pre.sourceCode{' + style + '}', j);
+    }
+  }
+})();
+</script>
+
+
+
+
+<style type="text/css">body {
+background-color: #fff;
+margin: 1em auto;
+max-width: 700px;
+overflow: visible;
+padding-left: 2em;
+padding-right: 2em;
+font-family: "Open Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+font-size: 14px;
+line-height: 1.35;
+}
+#TOC {
+clear: both;
+margin: 0 0 10px 10px;
+padding: 4px;
+width: 400px;
+border: 1px solid #CCCCCC;
+border-radius: 5px;
+background-color: #f6f6f6;
+font-size: 13px;
+line-height: 1.3;
+}
+#TOC .toctitle {
+font-weight: bold;
+font-size: 15px;
+margin-left: 5px;
+}
+#TOC ul {
+padding-left: 40px;
+margin-left: -1.5em;
+margin-top: 5px;
+margin-bottom: 5px;
+}
+#TOC ul ul {
+margin-left: -2em;
+}
+#TOC li {
+line-height: 16px;
+}
+table {
+margin: 1em auto;
+border-width: 1px;
+border-color: #DDDDDD;
+border-style: outset;
+border-collapse: collapse;
+}
+table th {
+border-width: 2px;
+padding: 5px;
+border-style: inset;
+}
+table td {
+border-width: 1px;
+border-style: inset;
+line-height: 18px;
+padding: 5px 5px;
+}
+table, table th, table td {
+border-left-style: none;
+border-right-style: none;
+}
+table thead, table tr.even {
+background-color: #f7f7f7;
+}
+p {
+margin: 0.5em 0;
+}
+blockquote {
+background-color: #f6f6f6;
+padding: 0.25em 0.75em;
+}
+hr {
+border-style: solid;
+border: none;
+border-top: 1px solid #777;
+margin: 28px 0;
+}
+dl {
+margin-left: 0;
+}
+dl dd {
+margin-bottom: 13px;
+margin-left: 13px;
+}
+dl dt {
+font-weight: bold;
+}
+ul {
+margin-top: 0;
+}
+ul li {
+list-style: circle outside;
+}
+ul ul {
+margin-bottom: 0;
+}
+pre, code {
+background-color: #f7f7f7;
+border-radius: 3px;
+color: #333;
+white-space: pre-wrap; 
+}
+pre {
+border-radius: 3px;
+margin: 5px 0px 10px 0px;
+padding: 10px;
+}
+pre:not([class]) {
+background-color: #f7f7f7;
+}
+code {
+font-family: Consolas, Monaco, 'Courier New', monospace;
+font-size: 85%;
+}
+p > code, li > code {
+padding: 2px 0px;
+}
+div.figure {
+text-align: center;
+}
+img {
+background-color: #FFFFFF;
+padding: 2px;
+border: 1px solid #DDDDDD;
+border-radius: 3px;
+border: 1px solid #CCCCCC;
+margin: 0 5px;
+}
+h1 {
+margin-top: 0;
+font-size: 35px;
+line-height: 40px;
+}
+h2 {
+border-bottom: 4px solid #f7f7f7;
+padding-top: 10px;
+padding-bottom: 2px;
+font-size: 145%;
+}
+h3 {
+border-bottom: 2px solid #f7f7f7;
+padding-top: 10px;
+font-size: 120%;
+}
+h4 {
+border-bottom: 1px solid #f7f7f7;
+margin-left: 8px;
+font-size: 105%;
+}
+h5, h6 {
+border-bottom: 1px solid #ccc;
+font-size: 105%;
+}
+a {
+color: #0033dd;
+text-decoration: none;
+}
+a:hover {
+color: #6666ff; }
+a:visited {
+color: #800080; }
+a:visited:hover {
+color: #BB00BB; }
+a[href^="http:"] {
+text-decoration: underline; }
+a[href^="https:"] {
+text-decoration: underline; }
+
+code > span.kw { color: #555; font-weight: bold; } 
+code > span.dt { color: #902000; } 
+code > span.dv { color: #40a070; } 
+code > span.bn { color: #d14; } 
+code > span.fl { color: #d14; } 
+code > span.ch { color: #d14; } 
+code > span.st { color: #d14; } 
+code > span.co { color: #888888; font-style: italic; } 
+code > span.ot { color: #007020; } 
+code > span.al { color: #ff0000; font-weight: bold; } 
+code > span.fu { color: #900; font-weight: bold; } 
+code > span.er { color: #a61717; background-color: #e3d2d2; } 
+</style>
+
+
+
+
+</head>
+
+<body>
+
+
+
+
+<h1 class="title toc-ignore">Getting started with hpsreg</h1>
+
+
+
+<div id="what-this-package-does" class="section level2">
+<h2>What this package does</h2>
+<p><code>hpsreg</code> fits a covariate-adjusted Bradley-Terry-Davidson
+model to <em>hierarchically ordered clinical outcomes</em>. Instead of
+picking one endpoint, you list outcomes in order of clinical priority.
+Each pair of subjects is compared level by level; the first level that
+separates them decides the pair. Only pairs that tie at every level
+count as ties.</p>
+<p>The workflow has three stages:</p>
+<ol style="list-style-type: decimal">
+<li><strong>Design</strong> a hierarchy of outcomes with
+<code>hierarchy()</code> and the <code>lvl_*()</code> constructors.</li>
+<li><strong>Score</strong> every pair of subjects with
+<code>score_pairs()</code>.</li>
+<li><strong>Estimate</strong> covariate effects with
+<code>btd()</code>.</li>
+</ol>
+<div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a><span class="fu">library</span>(hpsreg)</span></code></pre></div>
+</div>
+<div id="example-data" class="section level2">
+<h2>Example data</h2>
+<p><code>simulate_hps()</code> returns a synthetic stem-cell transplant
+cohort with the same column layout as a typical registry extract. The
+workflow below is identical for real data with columns of the same
+type.</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a>dat <span class="ot">&lt;-</span> <span class="fu">simulate_hps</span>(<span class="at">N =</span> <span class="dv">200</span>, <span class="at">seed =</span> <span class="dv">11</span>)</span>
+<span id="cb2-2"><a href="#cb2-2" tabindex="-1"></a><span class="fu">str</span>(dat, <span class="at">list.len =</span> <span class="dv">6</span>)</span>
+<span id="cb2-3"><a href="#cb2-3" tabindex="-1"></a><span class="co">#&gt; &#39;data.frame&#39;:    200 obs. of  24 variables:</span></span>
+<span id="cb2-4"><a href="#cb2-4" tabindex="-1"></a><span class="co">#&gt;  $ id                 : int  1 2 3 4 5 6 7 8 9 10 ...</span></span>
+<span id="cb2-5"><a href="#cb2-5" tabindex="-1"></a><span class="co">#&gt;  $ donor_type         : Factor w/ 3 levels &quot;MRD&quot;,&quot;MUD&quot;,&quot;HID&quot;: 2 2 1 2 2 3 2 2 3 2 ...</span></span>
+<span id="cb2-6"><a href="#cb2-6" tabindex="-1"></a><span class="co">#&gt;  $ age                : num  46 57 62 51 22 62 60 38 72 70 ...</span></span>
+<span id="cb2-7"><a href="#cb2-7" tabindex="-1"></a><span class="co">#&gt;  $ sex                : Factor w/ 2 levels &quot;F&quot;,&quot;M&quot;: 2 1 2 2 2 2 1 1 1 1 ...</span></span>
+<span id="cb2-8"><a href="#cb2-8" tabindex="-1"></a><span class="co">#&gt;  $ dri                : Factor w/ 4 levels &quot;Low&quot;,&quot;Intermediate&quot;,..: 1 2 2 2 1 4 2 2 1 1 ...</span></span>
+<span id="cb2-9"><a href="#cb2-9" tabindex="-1"></a><span class="co">#&gt;  $ hct_ci             : Factor w/ 2 levels &quot;0-2&quot;,&quot;&gt;=3&quot;: 2 2 1 2 2 2 2 2 1 2 ...</span></span>
+<span id="cb2-10"><a href="#cb2-10" tabindex="-1"></a><span class="co">#&gt;   [list output truncated]</span></span></code></pre></div>
+</div>
+<div id="design-a-hierarchy" class="section level2">
+<h2>Design a hierarchy</h2>
+<p>Levels are listed from highest to lowest priority.
+<code>lvl_tte()</code> compares time-to-event columns,
+<code>lvl_ordinal()</code> and <code>lvl_binary()</code> handle
+categorical outcomes, and <code>lvl_continuous()</code> handles
+continuous scores. The <code>when =</code> guard limits a level to
+subjects that meet a condition (used here so the GVHD resolution
+comparison only applies to subjects who had GVHD).</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" tabindex="-1"></a>h <span class="ot">&lt;-</span> <span class="fu">hierarchy</span>(</span>
+<span id="cb3-2"><a href="#cb3-2" tabindex="-1"></a>  <span class="fu">lvl_tte</span>(<span class="st">&quot;death_day&quot;</span>,   <span class="at">better =</span> <span class="st">&quot;later&quot;</span>, <span class="at">name =</span> <span class="st">&quot;survival&quot;</span>),</span>
+<span id="cb3-3"><a href="#cb3-3" tabindex="-1"></a>  <span class="fu">lvl_tte</span>(<span class="st">&quot;relapse_day&quot;</span>, <span class="at">better =</span> <span class="st">&quot;later&quot;</span>, <span class="at">name =</span> <span class="st">&quot;relapse&quot;</span>),</span>
+<span id="cb3-4"><a href="#cb3-4" tabindex="-1"></a>  <span class="fu">lvl_ordinal</span>(<span class="st">&quot;gvhd_grade&quot;</span>, <span class="at">better =</span> <span class="st">&quot;lower&quot;</span>, <span class="at">name =</span> <span class="st">&quot;GVHD grade&quot;</span>),</span>
+<span id="cb3-5"><a href="#cb3-5" tabindex="-1"></a>  <span class="fu">lvl_binary</span>(<span class="st">&quot;gvhd_resolved&quot;</span>, <span class="at">favorable =</span> <span class="dv">1</span>,</span>
+<span id="cb3-6"><a href="#cb3-6" tabindex="-1"></a>             <span class="at">when =</span> <span class="st">&quot;gvhd_grade &gt; 0&quot;</span>, <span class="at">name =</span> <span class="st">&quot;GVHD resolution&quot;</span>)</span>
+<span id="cb3-7"><a href="#cb3-7" tabindex="-1"></a>)</span>
+<span id="cb3-8"><a href="#cb3-8" tabindex="-1"></a>h</span>
+<span id="cb3-9"><a href="#cb3-9" tabindex="-1"></a><span class="co">#&gt; &lt;hierarchy&gt; 4 levels (first level that separates a pair decides it)</span></span>
+<span id="cb3-10"><a href="#cb3-10" tabindex="-1"></a><span class="co">#&gt;  1. survival: tte [death_day], later better (complete follow-up)</span></span>
+<span id="cb3-11"><a href="#cb3-11" tabindex="-1"></a><span class="co">#&gt;  2. relapse: tte [relapse_day], later better (complete follow-up)</span></span>
+<span id="cb3-12"><a href="#cb3-12" tabindex="-1"></a><span class="co">#&gt;  3. GVHD grade: ordinal [gvhd_grade], lower better</span></span>
+<span id="cb3-13"><a href="#cb3-13" tabindex="-1"></a><span class="co">#&gt;  4. GVHD resolution: binary [gvhd_resolved], favourable = 1 (when gvhd_grade &gt; 0)</span></span></code></pre></div>
+<p><code>hps_hierarchy()</code> returns the fuller transplant hierarchy
+used in the transplant examples, adding GVHD onset and infection
+levels.</p>
+<div id="censoring-in-time-to-event-levels" class="section level3">
+<h3>Censoring in time-to-event levels</h3>
+<p>For <code>lvl_tte()</code> levels, a subject whose event has not yet
+been observed (right-censored) is compared with the other subject using
+the Gehan rule: if the event time is beyond the censoring time, the pair
+is uninformative at that level and passes to the next one. The package
+tracks these pairs, and <code>summary()</code> reports what fraction of
+tied pairs are tied because of censoring rather than genuine
+equivalence:</p>
+<pre><code>Ties: 19.7% of pairs, of which 82% pure and 18% censoring</code></pre>
+<p>Heavy censoring weakens the survival level and pushes more
+discrimination onto the lower levels. The Gehan rule is conservative
+under heavy censoring; IPCW (Peron) scoring is not implemented.</p>
+</div>
+</div>
+<div id="score-the-pairs" class="section level2">
+<h2>Score the pairs</h2>
+<p><code>score_pairs()</code> enumerates every pair of subjects and
+scores it against the hierarchy. The compiled kernel exits at the first
+separating level, and the <code>resolution()</code> summary shows where
+the discrimination comes from.</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" tabindex="-1"></a>pw <span class="ot">&lt;-</span> <span class="fu">score_pairs</span>(h, dat)</span>
+<span id="cb5-2"><a href="#cb5-2" tabindex="-1"></a>pw</span>
+<span id="cb5-3"><a href="#cb5-3" tabindex="-1"></a><span class="co">#&gt; &lt;hb_pairs&gt; 19,900 pairs among 200 subjects</span></span>
+<span id="cb5-4"><a href="#cb5-4" tabindex="-1"></a><span class="co">#&gt;   wins/losses: 16292 resolved, 3608 tied on every level (18.1%)</span></span>
+<span id="cb5-5"><a href="#cb5-5" tabindex="-1"></a><span class="fu">resolution</span>(pw)</span>
+<span id="cb5-6"><a href="#cb5-6" tabindex="-1"></a><span class="co">#&gt;             level    n       prop</span></span>
+<span id="cb5-7"><a href="#cb5-7" tabindex="-1"></a><span class="co">#&gt; 1        survival 3790 0.19045226</span></span>
+<span id="cb5-8"><a href="#cb5-8" tabindex="-1"></a><span class="co">#&gt; 2         relapse 3547 0.17824121</span></span>
+<span id="cb5-9"><a href="#cb5-9" tabindex="-1"></a><span class="co">#&gt; 3      GVHD grade 8201 0.41211055</span></span>
+<span id="cb5-10"><a href="#cb5-10" tabindex="-1"></a><span class="co">#&gt; 4 GVHD resolution  754 0.03788945</span></span>
+<span id="cb5-11"><a href="#cb5-11" tabindex="-1"></a><span class="co">#&gt; 5          (tied) 3608 0.18130653</span></span></code></pre></div>
+<p>In this cohort survival is the decisive level for most pairs, and
+only a small fraction reach the GVHD-resolution comparison. Those
+remaining pairs are the ones that determine the tie parameter.</p>
+<p>The scored object <code>pw</code> can be reused across as many
+covariate models as you like — scoring is the only step that depends on
+the hierarchy. This is why <code>btd()</code> accepts <code>pairs</code>
+separately from <code>hierarchy</code>: score once, then fit
+<code>~ donor_type</code>, <code>~ donor_type + age</code>,
+<code>~ donor_type + age + dri</code>, and compare without
+rescoring.</p>
+</div>
+<div id="unadjusted-win-statistics" class="section level2">
+<h2>Unadjusted win statistics</h2>
+<p><code>win_stats()</code> is the descriptive companion to the model:
+the net benefit, win ratio, and win odds for one arm against another,
+with a per-level breakdown of where the wins and losses come from. It
+takes either scored pairs or a hierarchy, and needs a grouping
+variable.</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" tabindex="-1"></a><span class="fu">win_stats</span>(pw, dat<span class="sc">$</span>year)</span>
+<span id="cb6-2"><a href="#cb6-2" tabindex="-1"></a><span class="co">#&gt; Win statistics: &#39;2011-2015&#39; (n = 110) vs &#39;2005-2010&#39; (n = 90)</span></span>
+<span id="cb6-3"><a href="#cb6-3" tabindex="-1"></a><span class="co">#&gt; Cross-group pairs: win 0.398 | loss 0.417 | tie 0.185</span></span>
+<span id="cb6-4"><a href="#cb6-4" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb6-5"><a href="#cb6-5" tabindex="-1"></a><span class="co">#&gt;    statistic estimate   lower  upper       z      p</span></span>
+<span id="cb6-6"><a href="#cb6-6" tabindex="-1"></a><span class="co">#&gt;  net_benefit -0.01889 -0.1764 0.1386 -0.2351 0.8141</span></span>
+<span id="cb6-7"><a href="#cb6-7" tabindex="-1"></a><span class="co">#&gt;    win_ratio  0.95470  0.6485 1.4050 -0.2349 0.8143</span></span>
+<span id="cb6-8"><a href="#cb6-8" tabindex="-1"></a><span class="co">#&gt;     win_odds  0.96290  0.7027 1.3200 -0.2350 0.8142</span></span>
+<span id="cb6-9"><a href="#cb6-9" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb6-10"><a href="#cb6-10" tabindex="-1"></a><span class="co">#&gt; 95% CI; ratios use log-scale intervals. Contribution by level:</span></span>
+<span id="cb6-11"><a href="#cb6-11" tabindex="-1"></a><span class="co">#&gt;            level treatment_wins treatment_losses   tied</span></span>
+<span id="cb6-12"><a href="#cb6-12" tabindex="-1"></a><span class="co">#&gt;         survival         0.1280           0.0684 0.0000</span></span>
+<span id="cb6-13"><a href="#cb6-13" tabindex="-1"></a><span class="co">#&gt;          relapse         0.0367           0.1315 0.0000</span></span>
+<span id="cb6-14"><a href="#cb6-14" tabindex="-1"></a><span class="co">#&gt;       GVHD grade         0.2125           0.2001 0.0000</span></span>
+<span id="cb6-15"><a href="#cb6-15" tabindex="-1"></a><span class="co">#&gt;  GVHD resolution         0.0210           0.0171 0.0000</span></span>
+<span id="cb6-16"><a href="#cb6-16" tabindex="-1"></a><span class="co">#&gt;           (tied)         0.0000           0.0000 0.1847</span></span></code></pre></div>
+<p>Passing the hierarchy directly is convenient when you have not scored
+yet:</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" tabindex="-1"></a><span class="fu">win_stats</span>(h, dat<span class="sc">$</span>year, <span class="at">data =</span> dat)</span>
+<span id="cb7-2"><a href="#cb7-2" tabindex="-1"></a><span class="co">#&gt; Win statistics: &#39;2011-2015&#39; (n = 110) vs &#39;2005-2010&#39; (n = 90)</span></span>
+<span id="cb7-3"><a href="#cb7-3" tabindex="-1"></a><span class="co">#&gt; Cross-group pairs: win 0.398 | loss 0.417 | tie 0.185</span></span>
+<span id="cb7-4"><a href="#cb7-4" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb7-5"><a href="#cb7-5" tabindex="-1"></a><span class="co">#&gt;    statistic estimate   lower  upper       z      p</span></span>
+<span id="cb7-6"><a href="#cb7-6" tabindex="-1"></a><span class="co">#&gt;  net_benefit -0.01889 -0.1764 0.1386 -0.2351 0.8141</span></span>
+<span id="cb7-7"><a href="#cb7-7" tabindex="-1"></a><span class="co">#&gt;    win_ratio  0.95470  0.6485 1.4050 -0.2349 0.8143</span></span>
+<span id="cb7-8"><a href="#cb7-8" tabindex="-1"></a><span class="co">#&gt;     win_odds  0.96290  0.7027 1.3200 -0.2350 0.8142</span></span>
+<span id="cb7-9"><a href="#cb7-9" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb7-10"><a href="#cb7-10" tabindex="-1"></a><span class="co">#&gt; 95% CI; ratios use log-scale intervals. Contribution by level:</span></span>
+<span id="cb7-11"><a href="#cb7-11" tabindex="-1"></a><span class="co">#&gt;            level treatment_wins treatment_losses   tied</span></span>
+<span id="cb7-12"><a href="#cb7-12" tabindex="-1"></a><span class="co">#&gt;         survival         0.1280           0.0684 0.0000</span></span>
+<span id="cb7-13"><a href="#cb7-13" tabindex="-1"></a><span class="co">#&gt;          relapse         0.0367           0.1315 0.0000</span></span>
+<span id="cb7-14"><a href="#cb7-14" tabindex="-1"></a><span class="co">#&gt;       GVHD grade         0.2125           0.2001 0.0000</span></span>
+<span id="cb7-15"><a href="#cb7-15" tabindex="-1"></a><span class="co">#&gt;  GVHD resolution         0.0210           0.0171 0.0000</span></span>
+<span id="cb7-16"><a href="#cb7-16" tabindex="-1"></a><span class="co">#&gt;           (tied)         0.0000           0.0000 0.1847</span></span></code></pre></div>
+<p>The overall advantage is concentrated at the survival and relapse
+levels, not in the GVHD levels.</p>
+</div>
+<div id="fit-the-model" class="section level2">
+<h2>Fit the model</h2>
+<p><code>btd()</code> fits the covariate-adjusted model. Each
+coefficient is the log of the multiplicative effect of a one-unit
+increase in the covariate on the subject’s <em>worth</em>; positive
+values mean a better position in the hierarchy. The intercept is dropped
+because it is not identifiable from pairwise differences.</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" tabindex="-1"></a>fit <span class="ot">&lt;-</span> <span class="fu">btd</span>(<span class="sc">~</span> donor_type <span class="sc">+</span> age <span class="sc">+</span> dri, <span class="at">data =</span> dat, <span class="at">pairs =</span> pw)</span>
+<span id="cb8-2"><a href="#cb8-2" tabindex="-1"></a><span class="fu">summary</span>(fit)</span>
+<span id="cb8-3"><a href="#cb8-3" tabindex="-1"></a><span class="co">#&gt; Hierarchical Bradley-Terry-Davidson (BTD) model</span></span>
+<span id="cb8-4"><a href="#cb8-4" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb8-5"><a href="#cb8-5" tabindex="-1"></a><span class="co">#&gt; Call:</span></span>
+<span id="cb8-6"><a href="#cb8-6" tabindex="-1"></a><span class="co">#&gt; btd(formula = ~donor_type + age + dri, data = dat, pairs = pw)</span></span>
+<span id="cb8-7"><a href="#cb8-7" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb8-8"><a href="#cb8-8" tabindex="-1"></a><span class="co">#&gt; 200 subjects, 19,900 pairs (18.1% tied); engine: cpp (pairs stored), converged in 4 iterations</span></span>
+<span id="cb8-9"><a href="#cb8-9" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb8-10"><a href="#cb8-10" tabindex="-1"></a><span class="co">#&gt;                  Estimate Std. Error z value Pr(&gt;|z|)    </span></span>
+<span id="cb8-11"><a href="#cb8-11" tabindex="-1"></a><span class="co">#&gt; donor_typeMUD   -0.535047   0.224303  -2.385 0.017062 *  </span></span>
+<span id="cb8-12"><a href="#cb8-12" tabindex="-1"></a><span class="co">#&gt; donor_typeHID   -0.134535   0.284414  -0.473 0.636196    </span></span>
+<span id="cb8-13"><a href="#cb8-13" tabindex="-1"></a><span class="co">#&gt; age              0.004181   0.007264   0.576 0.564909    </span></span>
+<span id="cb8-14"><a href="#cb8-14" tabindex="-1"></a><span class="co">#&gt; driIntermediate -0.433764   0.311263  -1.394 0.163450    </span></span>
+<span id="cb8-15"><a href="#cb8-15" tabindex="-1"></a><span class="co">#&gt; driHigh         -0.644495   0.355564  -1.813 0.069894 .  </span></span>
+<span id="cb8-16"><a href="#cb8-16" tabindex="-1"></a><span class="co">#&gt; driVery high    -1.596841   0.457029  -3.494 0.000476 ***</span></span>
+<span id="cb8-17"><a href="#cb8-17" tabindex="-1"></a><span class="co">#&gt; log_delta       -0.767523   0.127828  -6.004 1.92e-09 ***</span></span>
+<span id="cb8-18"><a href="#cb8-18" tabindex="-1"></a><span class="co">#&gt; ---</span></span>
+<span id="cb8-19"><a href="#cb8-19" tabindex="-1"></a><span class="co">#&gt; Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1</span></span>
+<span id="cb8-20"><a href="#cb8-20" tabindex="-1"></a><span class="co">#&gt; Standard errors: sandwich (U-statistic projection over subjects).</span></span>
+<span id="cb8-21"><a href="#cb8-21" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb8-22"><a href="#cb8-22" tabindex="-1"></a><span class="co">#&gt; Tie parameter delta = 0.4642; log-likelihood = -19978.56</span></span>
+<span id="cb8-23"><a href="#cb8-23" tabindex="-1"></a><span class="co">#&gt;   Ties: 18.1% of pairs, of which 100% pure and 0% censoring</span></span></code></pre></div>
+<p>You can also let <code>btd()</code> score the pairs for you by
+passing <code>hierarchy = h</code> instead of <code>pairs = pw</code>.
+For small cohorts the two give identical estimates.</p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" tabindex="-1"></a>fit2 <span class="ot">&lt;-</span> <span class="fu">btd</span>(<span class="sc">~</span> donor_type <span class="sc">+</span> age <span class="sc">+</span> dri, <span class="at">data =</span> dat, <span class="at">hierarchy =</span> h)</span>
+<span id="cb9-2"><a href="#cb9-2" tabindex="-1"></a><span class="fu">all.equal</span>(<span class="fu">coef</span>(fit), <span class="fu">coef</span>(fit2))</span>
+<span id="cb9-3"><a href="#cb9-3" tabindex="-1"></a><span class="co">#&gt; [1] TRUE</span></span></code></pre></div>
+<p><code>data</code> must be the same data frame (same rows, same order)
+that was scored. <code>btd()</code> checks the row count against
+<code>pairs$N</code> and errors if they differ, but it cannot detect a
+reordered frame — the row <em>indices</em> in <code>pw</code> would
+point at the wrong subjects. If you subset or reorder, rescore.</p>
+<div id="interpreting-delta" class="section level3">
+<h3>Interpreting <code>delta</code></h3>
+<p>Every <code>summary(fit)</code> prints a <code>delta</code> value and
+its log. These describe the model’s <em>tie propensity</em> — a weight
+on the probability that a pair ties, independent of the covariate
+effects. It is not a probability: <code>delta = 0.49</code> means the
+tie term contributes roughly half as much as an even-matched win, and
+<code>delta = 0</code> reduces the model to ordinary Bradley-Terry (used
+automatically when there are no tied pairs). Use
+<code>btd_calibration()</code> to check whether a single
+<code>delta</code> fits all levels.</p>
+</div>
+<div id="standard-errors" class="section level3">
+<h3>Standard errors</h3>
+<p>The default standard errors are sandwich (robust) estimates that
+account for the dependence between pairs sharing a subject. The
+model-based values, which assume independent pairs and are typically too
+small, are available for reference:</p>
+<div class="sourceCode" id="cb10"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" tabindex="-1"></a><span class="fu">cbind</span>(<span class="at">sandwich =</span> <span class="fu">sqrt</span>(<span class="fu">diag</span>(<span class="fu">vcov</span>(fit))),</span>
+<span id="cb10-2"><a href="#cb10-2" tabindex="-1"></a>      <span class="at">model    =</span> <span class="fu">sqrt</span>(<span class="fu">diag</span>(<span class="fu">vcov</span>(fit, <span class="at">model =</span> <span class="cn">TRUE</span>))))</span>
+<span id="cb10-3"><a href="#cb10-3" tabindex="-1"></a><span class="co">#&gt;                    sandwich        model</span></span>
+<span id="cb10-4"><a href="#cb10-4" tabindex="-1"></a><span class="co">#&gt; donor_typeMUD   0.224302540 0.0264546845</span></span>
+<span id="cb10-5"><a href="#cb10-5" tabindex="-1"></a><span class="co">#&gt; donor_typeHID   0.284413658 0.0333297133</span></span>
+<span id="cb10-6"><a href="#cb10-6" tabindex="-1"></a><span class="co">#&gt; age             0.007263554 0.0008346674</span></span>
+<span id="cb10-7"><a href="#cb10-7" tabindex="-1"></a><span class="co">#&gt; driIntermediate 0.311263413 0.0368945227</span></span>
+<span id="cb10-8"><a href="#cb10-8" tabindex="-1"></a><span class="co">#&gt; driHigh         0.355563947 0.0399803355</span></span>
+<span id="cb10-9"><a href="#cb10-9" tabindex="-1"></a><span class="co">#&gt; driVery high    0.457029363 0.0544482623</span></span></code></pre></div>
+<p><code>confint(fit)</code> returns Wald intervals for the coefficients
+(but not for <code>log_delta</code>). <code>nobs(fit)</code> is the
+number of pairs — <code>N(N-1)/2</code> for a complete set — not the
+number of subjects; the subject count is
+<code>fit$n_subjects</code>.</p>
+</div>
+</div>
+<div id="prediction-and-calibration" class="section level2">
+<h2>Prediction and calibration</h2>
+<p><code>predict()</code> returns the latent score (log-worth) for each
+subject, and <code>btd_pair_probs()</code> returns response-scale
+probabilities for pairs.</p>
+<div class="sourceCode" id="cb11"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" tabindex="-1"></a><span class="fu">predict</span>(fit, dat[<span class="dv">1</span><span class="sc">:</span><span class="dv">3</span>, ])</span>
+<span id="cb11-2"><a href="#cb11-2" tabindex="-1"></a><span class="co">#&gt;          1          2          3 </span></span>
+<span id="cb11-3"><a href="#cb11-3" tabindex="-1"></a><span class="co">#&gt;  0.2477370 -0.1400401  0.4159097</span></span>
+<span id="cb11-4"><a href="#cb11-4" tabindex="-1"></a><span class="fu">btd_pair_probs</span>(fit, dat[<span class="dv">1</span><span class="sc">:</span><span class="dv">3</span>, ], dat[<span class="dv">4</span><span class="sc">:</span><span class="dv">6</span>, ])</span>
+<span id="cb11-5"><a href="#cb11-5" tabindex="-1"></a><span class="co">#&gt;       win_a       tie     win_b</span></span>
+<span id="cb11-6"><a href="#cb11-6" tabindex="-1"></a><span class="co">#&gt; 1 0.4903544 0.1851515 0.3244941</span></span>
+<span id="cb11-7"><a href="#cb11-7" tabindex="-1"></a><span class="co">#&gt; 2 0.3485638 0.1867963 0.4646399</span></span>
+<span id="cb11-8"><a href="#cb11-8" tabindex="-1"></a><span class="co">#&gt; 3 0.6597236 0.1600509 0.1802256</span></span></code></pre></div>
+<p><code>btd_calibration()</code> compares observed and predicted win
+shares, by hierarchy level or by bin of the latent difference. In a
+well-calibrated hierarchy the two sets of points lie on top of each
+other. Observed consistently above predicted at the lower levels would
+suggest the hierarchy discriminates those pairs more sharply than a
+single latent scale allows.</p>
+<div class="sourceCode" id="cb12"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" tabindex="-1"></a><span class="fu">btd_calibration</span>(fit, <span class="at">by =</span> <span class="st">&quot;level&quot;</span>)</span>
+<span id="cb12-2"><a href="#cb12-2" tabindex="-1"></a><span class="co">#&gt;             level    n obs_win_i pred_win_i</span></span>
+<span id="cb12-3"><a href="#cb12-3" tabindex="-1"></a><span class="co">#&gt; 1        survival 3790 0.5287599  0.5225149</span></span>
+<span id="cb12-4"><a href="#cb12-4" tabindex="-1"></a><span class="co">#&gt; 2         relapse 3547 0.5181844  0.5040202</span></span>
+<span id="cb12-5"><a href="#cb12-5" tabindex="-1"></a><span class="co">#&gt; 3      GVHD grade 8201 0.4334837  0.5002090</span></span>
+<span id="cb12-6"><a href="#cb12-6" tabindex="-1"></a><span class="co">#&gt; 4 GVHD resolution  754 0.4801061  0.5025660</span></span>
+<span id="cb12-7"><a href="#cb12-7" tabindex="-1"></a><span class="fu">plot</span>(<span class="fu">btd_calibration</span>(fit, <span class="at">by =</span> <span class="st">&quot;level&quot;</span>))</span></code></pre></div>
+<p><img role="img" src="data:image/png;base64,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" width="90%" /></p>
+</div>
+<div id="large-cohorts" class="section level2">
+<h2>Large cohorts</h2>
+<p>Every pair is scored, so <code>N = 10000</code> means about 50
+million pairs. <code>btd()</code> offers three storage modes, chosen
+automatically based on <code>N</code>:</p>
+<ul>
+<li><code>&quot;stored&quot;</code> — keeps all pairs explicitly; fastest for
+small <code>N</code>.</li>
+<li><code>&quot;compact&quot;</code> — scores pairs once into a one-byte code;
+about 50 MB at <code>N = 10000</code>.</li>
+<li><code>&quot;stream&quot;</code> — re-scores pairs in each pass and stores
+nothing proportional to the number of pairs.</li>
+</ul>
+<p>All three give the same estimates up to numerical precision. The mode
+actually used is reported in the fit summary.</p>
+<div class="sourceCode" id="cb13"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" tabindex="-1"></a>fit <span class="ot">&lt;-</span> <span class="fu">btd</span>(<span class="sc">~</span> donor_type <span class="sc">+</span> age, <span class="at">data =</span> dat, <span class="at">hierarchy =</span> h, <span class="at">storage =</span> <span class="st">&quot;compact&quot;</span>)</span></code></pre></div>
+<p><code>score_pairs()</code> refuses to hold more than
+<code>max_pairs</code> (default 5e7, about N = 10,000) pairs at once.
+For larger N, either raise <code>max_pairs</code>, sample with
+<code>sample_pairs()</code>, or pass the hierarchy directly to
+<code>btd()</code> — the compact and streaming engines score pairs on
+the fly and never materialise the full set.</p>
+<div id="threads" class="section level3">
+<h3>Threads</h3>
+<p>The engine is parallelised across pairs with OpenMP when the build
+supports it. Results are bitwise identical regardless of thread count —
+threads only change runtime. <code>openmp_threads()</code> reports how
+many threads the build can use; <code>0</code> means OpenMP is not
+available (stock macOS toolchains, for example), in which case
+everything runs serially.</p>
+<div class="sourceCode" id="cb14"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" tabindex="-1"></a><span class="fu">openmp_threads</span>()</span>
+<span id="cb14-2"><a href="#cb14-2" tabindex="-1"></a><span class="co">#&gt; [1] 16</span></span></code></pre></div>
+<p>Set the thread count per call or globally:</p>
+<div class="sourceCode" id="cb15"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" tabindex="-1"></a>fit_mt <span class="ot">&lt;-</span> <span class="fu">btd</span>(<span class="sc">~</span> donor_type <span class="sc">+</span> age, <span class="at">data =</span> dat, <span class="at">hierarchy =</span> h,</span>
+<span id="cb15-2"><a href="#cb15-2" tabindex="-1"></a>              <span class="at">control =</span> <span class="fu">btd_control</span>(<span class="at">threads =</span> <span class="dv">4</span>))</span>
+<span id="cb15-3"><a href="#cb15-3" tabindex="-1"></a></span>
+<span id="cb15-4"><a href="#cb15-4" tabindex="-1"></a><span class="fu">options</span>(<span class="at">hpsreg.threads =</span> <span class="dv">4</span>)          <span class="co"># applies to every subsequent call</span></span>
+<span id="cb15-5"><a href="#cb15-5" tabindex="-1"></a>fit_mt2 <span class="ot">&lt;-</span> <span class="fu">btd</span>(<span class="sc">~</span> donor_type <span class="sc">+</span> age, <span class="at">data =</span> dat, <span class="at">hierarchy =</span> h)</span>
+<span id="cb15-6"><a href="#cb15-6" tabindex="-1"></a><span class="fu">all.equal</span>(<span class="fu">coef</span>(fit_mt), <span class="fu">coef</span>(fit_mt2))</span></code></pre></div>
+</div>
+</div>
+<div id="citation" class="section level2">
+<h2>Citation</h2>
+<p>If you use <code>hpsreg</code> in published work, please cite:</p>
+<blockquote>
+<p>Varadhan R. <em>Hierarchical Pairwise Scoring: A Regression Framework
+for Composite Outcomes, with Application to Hematopoietic Stem Cell
+Transplantation.</em> Manuscript in preparation, 2026.</p>
+</blockquote>
+<p>The same reference is available from R with
+<code>citation(&quot;hpsreg&quot;)</code>.</p>
+</div>
+<div id="where-to-go-next" class="section level2">
+<h2>Where to go next</h2>
+<ul>
+<li><code>?btd</code> for the full argument list and the returned
+object.</li>
+<li><code>?hierarchy</code>, <code>?lvl_binary</code>,
+<code>?lvl_ordinal</code>, <code>?lvl_continuous</code>,
+<code>?lvl_tte</code> for the hierarchy constructors.</li>
+<li><code>?score_pairs</code>, <code>?resolution</code> for the scoring
+layer.</li>
+<li><code>?win_stats</code>, <code>?btd_calibration</code>,
+<code>?btd_pair_probs</code> for post-fit summaries.</li>
+</ul>
+</div>
+
+
+
+<!-- code folding -->
+
+
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+  (function () {
+    var script = document.createElement("script");
+    script.type = "text/javascript";
+    script.src  = "https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML";
+    document.getElementsByTagName("head")[0].appendChild(script);
+  })();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,10 @@
+bibentry(
+  bibtype = "Unpublished",
+  key     = "varadhan2026hps",
+  title   = paste("Hierarchical Pairwise Scoring: A Regression Framework",
+                  "for Composite Outcomes, with Application to Hematopoietic",
+                  "Stem Cell Transplantation"),
+  author  = person("Ravi", "Varadhan"),
+  year    = "2026",
+  note    = "Manuscript in preparation"
+)
