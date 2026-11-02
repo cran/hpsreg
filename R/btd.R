@@ -73,13 +73,17 @@ btd_control <- function(max_iter = 200L, tol = 1e-06, lambda0 = 1e-6,
 #'
 #' @return An object of class `btd` with `coefficients`, `log_delta`, `delta`,
 #'   `vcov` (sandwich, on the original covariate scale, including `log_delta`),
-#'   `vcov_model`, `loglik`, convergence information, the latent scores `eta`
+#'   `vcov_model`, `loglik`, convergence information, the latent scores `eta`,
+#'   `latent_range` (the largest fitted log-odds of a decisive win between two
+#'   subjects; very large values signal (quasi-)separation and trigger a warning)
 #'   and the pairs used.
 #'
 #'   The object supports the usual generics: `summary()` (coefficient table
 #'   with z-tests), `coef()`, `vcov()` (`model = TRUE` for the model-based
 #'   information), `confint()` (Wald intervals), `logLik()`, `nobs()`
-#'   (number of pairs; the subject count is `fit$n_subjects`), `print()`, and
+#'   (number of pairs; the subject count is `fit$n_subjects`; because pairs
+#'   sharing a subject are dependent, `AIC()` and `BIC()` computed from this
+#'   pairwise likelihood are not valid model-selection criteria), `print()`, and
 #'   `predict()` (latent score for the training rows, or for a `newdata` frame). 
 #'  
 #'   Pair-level predicted probabilities are provided by [btd_pair_probs()]; 
@@ -96,7 +100,8 @@ btd_control <- function(max_iter = 200L, tol = 1e-06, lambda0 = 1e-6,
 #'    you; the pairs are kept in the fitted object (`fit$pairs`) for later use.
 #'
 #' In both cases `data` must be the same data frame (same rows, same order)
-#' that is scored.
+#' that is scored. Pairs scored by [score_pairs()] carry a fingerprint of the
+#' outcome data, and `btd()` stops with an error if `data` does not match it.
 #'
 #' @examples
 #' ## From scratch: define a hierarchy from data-frame columns, score, fit.
@@ -219,6 +224,16 @@ btd <- function(formula, data, pairs = NULL, hierarchy = NULL, scale = TRUE,
     if (pairs$N != nrow(X))
       stop("`pairs` was scored on ", pairs$N, " subjects but `data` has ",
            nrow(X), " rows.", call. = FALSE)
+    ## the pairs refer to rows by position: make sure `data` is the scored data frame
+    if (!is.null(pairs$fingerprint)) {
+      fp <- tryCatch(suppressWarnings(.fingerprint(.compile_hierarchy(pairs$hierarchy, data)$V)),
+                     error = function(e) NULL)
+      if (!is.null(fp) && !isTRUE(all.equal(unname(fp), unname(pairs$fingerprint),
+                                            tolerance = 1e-10)))
+        stop("`data` does not match the data `pairs` was scored on: its outcome values or ",
+             "row order differ. Rescore with score_pairs() on this data frame, or pass ",
+             "`hierarchy` instead of `pairs`.", call. = FALSE)
+    }
   }
 
   if (is.null(stream)) {
@@ -271,9 +286,26 @@ btd <- function(formula, data, pairs = NULL, hierarchy = NULL, scale = TRUE,
     vc <- .btd_vcov_r(Xs, pairs$id_i, pairs$id_j, pairs$W, fit$beta,
                       if (est_delta) fit$log_delta else 0, est_delta)
   }
-  if (!isTRUE(fit$converged))
-    warning(sprintf("Fit did not converge in %d iterations (scaled |g| = %.2e).",
-                    fit$n_iter, fit$grad_norm), call. = FALSE)
+  ## Largest log-odds of a decisive win between any two subjects implied by the fit.
+  ## Values far beyond what clinical data produce (win probabilities indistinguishable
+  ## from 1) are the signature of (quasi-)separation: some covariate combination almost
+  ## perfectly predicts who wins, and the maximum likelihood estimate is at or near
+  ## infinity. The likelihood is then nearly flat, so a gradient test can pass.
+  lat_range <- diff(range(drop(Xs %*% fit$beta)))
+  sep_msg <- sprintf(paste0("The fitted latent scores span a log-odds range of %.0f ",
+                            "(win probabilities indistinguishable from 1), which suggests ",
+                            "(quasi-)separation: a covariate or combination of covariates ",
+                            "almost perfectly predicts the winner, so the maximum likelihood ",
+                            "estimate may not be finite. Consider dropping or combining ",
+                            "covariates; estimates and standard errors are not reliable."),
+                     lat_range)
+  if (!isTRUE(fit$converged)) {
+    warning(sprintf("Fit did not converge in %d iterations (scaled |g| = %.2e).%s",
+                    fit$n_iter, fit$grad_norm,
+                    if (lat_range > 40) paste0(" ", sep_msg) else ""), call. = FALSE)
+  } else if (lat_range > 60) {
+    warning("Fit converged, but ", sep_msg, call. = FALSE)
+  }
   if (isTRUE(vc$singular))
     warning("Information matrix is singular (collinear covariates?); ",
             "a pseudo-inverse was used for the variance.", call. = FALSE)
@@ -296,7 +328,7 @@ btd <- function(formula, data, pairs = NULL, hierarchy = NULL, scale = TRUE,
     n_grad_evals    = fit$n_grad_evals,
     trials_per_iter = fit$trials_per_iter,
     converged = isTRUE(fit$converged),
-    grad_norm = fit$grad_norm, engine = engine,
+    grad_norm = fit$grad_norm, latent_range = lat_range, engine = engine,
     n_subjects = nrow(X), n_pairs = n_pairs, n_ties = n_tie,
     cens_tie = cens_tie,
     est_delta = est_delta,
@@ -399,7 +431,9 @@ if (isTRUE(x$exponentiate)) {
 
   cat("Standard errors: sandwich (U-statistic projection over subjects).\n")
   if (isTRUE(x$exponentiate))
-  cat("Estimate column is on the exp scale; SE, z and p are on the log scale.\n")
+    cat("Estimate column is on the exp scale; SE, z and p are on the log scale.\n")
+  if (any(rownames(x$coefficients) == "log_delta"))
+    cat("The z test on the delta row is of delta = 1; it is not a test of whether ties occur.\n")
   cat(sprintf("\nTie parameter delta = %.4f; log-likelihood = %.2f\n",
               x$delta, x$loglik))
 
@@ -475,10 +509,20 @@ btd_pair_probs <- function(object, a, b) {
 #' Compares observed outcomes of the scored pairs with the model's predicted
 #' probabilities.
 #'
-#' * `by = "level"`: among pairs *decided* at each hierarchy level, the observed
-#'   share won by the first-listed subject versus the model's
-#'   \eqn{P(i)/(P(i)+P(j))}. Systematic differences between levels suggest that
-#'   a single latent scale does not describe all levels.
+#' * `by = "level"`: among pairs *decided* at each hierarchy level, each pair is
+#'   oriented so that the "higher" subject is the one with the larger fitted
+#'   score, and the observed share won by the higher subject is compared with
+#'   the model's \eqn{P(\mathrm{higher})/(P(\mathrm{higher})+P(\mathrm{lower}))}.
+#'   This asks how well the latent score predicts the winner at each level; 0.5
+#'   would mean no predictive value. A level whose observed share is well below
+#'   (above) its prediction is one where the covariates rank patients less (more)
+#'   sharply than the model implies, which suggests that a single latent scale
+#'   does not describe all levels. Pairs are oriented by the fitted score because
+#'   their order in the data is arbitrary: the share won by the first-listed
+#'   subject depends on row order and not on the model. Pairs whose fitted scores
+#'   are equal (identical covariate profiles) count one half. Tied pairs are not
+#'   decided at any level and do not enter this table; the tie model is checked
+#'   with `by = "bin"`.
 #' * `by = "bin"`: pairs are grouped by quantiles of the predicted latent
 #'   difference; observed and predicted win / tie / loss fractions are compared.
 #'   For fits made with streaming (no stored pairs) the bins are approximate
@@ -494,7 +538,7 @@ btd_pair_probs <- function(object, a, b) {
 #'
 #' @return A `btd_calibration` object (a data frame with additional
 #'   attributes) with columns
-#'   * `by = "level"`: `level`, `n`, `obs_win_i`, `pred_win_i`.
+#'   * `by = "level"`: `level`, `n`, `obs_win_higher`, `pred_win_higher`.
 #'   * `by = "bin"`: `bin`, `n`, `obs_win_i`, `pred_win_i`, `obs_tie`,
 #'     `pred_tie`, `obs_win_j`, `pred_win_j`.
 #'
@@ -529,11 +573,17 @@ btd_calibration <- function(object, by = c("level", "bin"), n_bins = 10L) {
   K <- length(pw$hierarchy)
 
   if (by == "level") {
+    ## orient each pair so that the "higher" subject has the larger fitted score
+    ## pairs with equal fitted scores (identical covariate profiles) count one half
+    eq   <- abs(d) <= 1e-12
+    hi   <- ifelse(d > 0, 1L, -1L)
+    o_hi <- ifelse(eq, 0.5, as.numeric(pw$W * hi == 1L))
+    p_hi <- ifelse(eq, 0.5, ifelse(d > 0, p_w, p_l) / (p_w + p_l))
     rows <- lapply(seq_len(K), function(k) {
       s <- pw$level == k
       data.frame(level = pw$hierarchy$level_names[k], n = sum(s),
-                 obs_win_i = if (any(s)) mean(pw$W[s] == 1L) else NA_real_,
-                 pred_win_i = if (any(s)) mean((p_w / (p_w + p_l))[s]) else NA_real_)
+                 obs_win_higher  = if (any(s)) mean(o_hi[s]) else NA_real_,
+                 pred_win_higher = if (any(s)) mean(p_hi[s]) else NA_real_)
     })
     tab <- do.call(rbind, rows)
   } else {
@@ -570,8 +620,8 @@ btd_calibration <- function(object, by = c("level", "bin"), n_bins = 10L) {
     sm  <- function(col) as.numeric(tapply(cal$by_level[, col], grp, sum, default = 0))
     n <- sm(1L)
     tab <- data.frame(level = h$level_names, n = n,
-                      obs_win_i  = ifelse(n > 0, sm(2L) / n, NA_real_),
-                      pred_win_i = ifelse(n > 0, sm(3L) / n, NA_real_))
+                      obs_win_higher  = ifelse(n > 0, sm(2L) / n, NA_real_),
+                      pred_win_higher = ifelse(n > 0, sm(3L) / n, NA_real_))
   } else {
     fb  <- cal$fine
     tot <- sum(fb[, 1L])
@@ -612,23 +662,25 @@ btd_calibration <- function(object, by = c("level", "bin"), n_bins = 10L) {
   dots <- list(...)
   k  <- nrow(x)
   yi <- rev(seq_len(k))
-  lo <- min(c(x$obs_win_i, x$pred_win_i), na.rm = TRUE)
-  hi <- max(c(x$obs_win_i, x$pred_win_i), na.rm = TRUE)
+  lab <- sprintf("%s (n = %s)", x$level, format(x$n, big.mark = ",", trim = TRUE))
+  lo <- min(c(x$obs_win_higher, x$pred_win_higher, 0.5), na.rm = TRUE)
+  hi <- max(c(x$obs_win_higher, x$pred_win_higher), na.rm = TRUE)
   rng <- c(max(0, lo - 0.05), min(1, hi + 0.05))
 
-  op <- graphics::par(mar = c(4, 12, 3, 2))
+  op <- graphics::par(mar = c(4, max(8, 0.5 * max(nchar(lab)) + 1), 3, 2))
   on.exit(par(op), add = TRUE)
 
   do.call(graphics::plot, .merge_plot_args(
     list(x = NA, xlim = rng, ylim = c(0.5, k + 0.5),
-         yaxt = "n", xlab = "P(i wins | resolved at level)", ylab = "",
+         yaxt = "n", xlab = "P(higher-scored subject wins | decided at level)", ylab = "",
          main = "Calibration by level"),
     dots))
 
-  graphics::axis(2, at = yi, labels = x$level, las = 1)
+  graphics::axis(2, at = yi, labels = lab, las = 1)
   graphics::abline(h = yi, col = "grey85", lty = 3)
-  graphics::points(x$pred_win_i, yi, pch = 1, col = "red", cex = 1.2, lwd = 2)
-  graphics::points(x$obs_win_i,  yi, pch = 16, col = "black")
+  graphics::abline(v = 0.5, col = "grey60", lty = 2)
+  graphics::points(x$pred_win_higher, yi, pch = 1, col = "red", cex = 1.2, lwd = 2)
+  graphics::points(x$obs_win_higher,  yi, pch = 16, col = "black")
   graphics::legend("bottomright",
                    legend = c("observed", "predicted"),
                    pch = c(16, 1), col = c("black", "red"), bty = "n")
@@ -671,10 +723,12 @@ btd_calibration <- function(object, by = c("level", "bin"), n_bins = 10L) {
 #' Two graphical summaries are produced depending on the `by` argument
 #' of [btd_calibration()]:
 #'
-#' * `by = "level"`: a dot plot with one row per hierarchy level, showing
-#'   the observed and predicted win share for pairs resolved at that level.
-#'   Lines of agreement between the two are what a well-calibrated hierarchy
-#'   should look like.
+#' * `by = "level"`: a dot plot with one row per hierarchy level (labelled
+#'   with the number of pairs decided there), showing the observed and
+#'   predicted share of pairs won by the higher-scored subject among pairs
+#'   decided at that level. Observed and predicted points close together on
+#'   every row are what a single latent scale implies; the dashed line at 0.5
+#'   marks no predictive value.
 #' * `by = "bin"`: three line plots (win, tie, loss) of observed against
 #'   predicted probabilities across quantile bins of the latent difference
 #'   `d`. 

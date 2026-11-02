@@ -208,7 +208,9 @@ test_that("calibration summaries have the right shape and are sensible", {
   fit <- btd(~ donor_type + dri + age, dat, pairs = score_pairs(hps_hierarchy(), dat))
   cl <- btd_calibration(fit)
   expect_equal(nrow(cl), 4L)
-  expect_true(all(cl$obs_win_i > 0.3 & cl$obs_win_i < 0.7))
+  expect_named(cl, c("level", "n", "obs_win_higher", "pred_win_higher"))
+  expect_true(all(cl$obs_win_higher >= 0 & cl$obs_win_higher <= 1))
+  expect_true(all(cl$pred_win_higher >= 0.5))   # the higher-scored subject is favoured
   cb <- btd_calibration(fit, by = "bin", n_bins = 5)
   expect_equal(nrow(cb), 5L)
   expect_equal(sum(cb$n), length(fit$pairs$W))
@@ -378,17 +380,18 @@ test_that("fit reports evaluation counts consistently", {
   fit <- btd(~ donor_type + age, data = dat, hierarchy = hps_hierarchy())
 
   expect_true(is.numeric(fit$n_full_evals) && fit$n_full_evals >= 1)
-  expect_true(is.numeric(fit$n_grad_evals) && fit$n_grad_evals >= 0)
+  expect_true(is.numeric(fit$n_grad_evals))
   expect_true(is.numeric(fit$trials_per_iter))
   expect_true(all(fit$trials_per_iter >= 1))
-  expect_true(all(fit$trials_per_iter <= 10))       # 10 LM trials max per iter
+  expect_true(all(fit$trials_per_iter <= 10))
   expect_true(length(fit$trials_per_iter) <= fit$n_iter)
   expect_true(fit$n_full_evals >= fit$n_iter)
-  expect_true(fit$n_full_evals == fit$n_iter + 1L)  # one at start, one at the end
+  # after fusion: 1 initial pass + 1 pass per trial
+  expect_equal(fit$n_full_evals, 1L + sum(fit$trials_per_iter))
 })
 
-test_that("trials_per_iter sums to the gradient-only evaluations", {
+test_that("no gradient-only evaluations after fusion", {
   dat <- simulate_hps(N = 100, seed = 6)
   fit <- btd(~ donor_type + age + dri, data = dat, hierarchy = hps_hierarchy())
-  expect_equal(sum(fit$trials_per_iter), fit$n_grad_evals)
+  expect_equal(fit$n_grad_evals, 0L)
 })

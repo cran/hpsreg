@@ -20,6 +20,29 @@
 // Nothing here forms the n_pairs x p matrix of covariate differences: linear
 // predictors are computed per subject (N values) and differences are formed on the fly.
 //
+// Hessian accumulation.  The pair-level negative-Hessian contribution is
+//   f_ij (x_i - x_j)(x_i - x_j)'
+// with f_ij = 0.25 * (4 p_w p_l + p_t (p_w + p_l)).  Summing over pairs and
+// expanding the outer product gives
+//   sum_{i<j} f_ij (x_i - x_j)(x_i - x_j)'
+//     = sum_i D_i x_i x_i' - sum_i x_i m_i'
+// where D_i = sum_{j!=i} f_ij and m_i = sum_{j!=i} f_ij x_j.  The per-pair update
+// is O(p) instead of O(p^2), and the reassembly of the p x p Hessian is a single
+// O(N p^2) pass at the end of the accumulator.
+//
+// Covariate centering.  The two terms on the right of the identity above both
+// scale as mean(x)^2 while their difference scales as var(x); with a large mean
+// they cancel badly.  Since the Davidson likelihood depends only on differences,
+// every entry point that receives a covariate matrix centers its columns before
+// accumulating, which restores full precision.
+//
+// LM iteration.  Every evaluation is now a full pass (loglik + gradient + Hessian).
+// The trial that the inner loop accepts is cached and reused as the starting point
+// of the next outer iteration, so the outer loop never re-evaluates at a point it
+// has just accepted.  This eliminates one full pass per accepted iteration and the
+// final post-loop pass, at the cost of making rejected trials more expensive than
+// a loglik-only pass would have been.
+//
 // Parallelism (streaming engine only).  Pairs are split into a fixed number of
 // chunks that depends only on N. Each chunk has its own accumulators and chunks are
 // combined in a fixed order, so results are bitwise identical for any number of
@@ -44,6 +67,19 @@ using Eigen::VectorXd;
 
 typedef Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> RowMat;
 
+// Number of threads actually used for a parallel loop over `nchunks` chunks: at least 1,
+// never more than the number of chunks (extra threads would have no work) and never more
+// than the number of processors. Requests beyond that are pointless and, for very large
+// values, made the OpenMP runtime exhaust the C stack.
+inline int clamp_threads(int threads, int nchunks) {
+  int n = std::max(1, threads);
+  n = std::min(n, std::max(1, nchunks));
+#ifdef _OPENMP
+  n = std::min(n, std::max(1, omp_get_num_procs()));
+#endif
+  return n;
+}
+
 // [[Rcpp::export]]
 int cpp_openmp_threads() {
 #ifdef _OPENMP
@@ -67,6 +103,8 @@ struct LevelSpec {
   int    na_rule;  // numeric: 0 = NA ties, 1 = NA is best, 2 = NA is worst
   double sign;     // +1 if larger value / later time is better, -1 otherwise
   double thr;      // tie margin (>= 0)
+  int    ctie;     // tte: 1 = an event and a censoring at the same time are ordered with the
+                   // censored subject outliving the event (usual convention); 0 = uninformative
 };
 
 std::vector<LevelSpec> parse_levels(const List& levels) {
@@ -82,6 +120,7 @@ std::vector<LevelSpec> parse_levels(const List& levels) {
     s.na_rule = as<int>(L["na_rule"]);
     s.sign    = as<double>(L["sign"]);
     s.thr     = as<double>(L["thr"]);
+    s.ctie    = L.containsElementNamed("ctie") ? as<int>(L["ctie"]) : 0;
     out.push_back(s);
   }
   return out;
@@ -124,9 +163,13 @@ inline int eval_level(const LevelSpec& L, const double* V, R_xlen_t N,
     const double diff = ta - tb;
     r = (diff > L.thr) ? 1 : ((diff < -L.thr) ? -1 : 0);
   } else if (xa && !xb) {            // b censored at tb
-    if (tb - ta > L.thr) r = -1; else { indet = true; return 0; }
+    if (tb - ta > L.thr) r = -1;
+    else if (L.ctie && L.thr == 0.0 && tb == ta) r = -1;   // censored at the event time
+    else { indet = true; return 0; }
   } else if (!xa && xb) {            // a censored at ta
-    if (ta - tb > L.thr) r = 1;  else { indet = true; return 0; }
+    if (ta - tb > L.thr) r = 1;
+    else if (L.ctie && L.thr == 0.0 && ta == tb) r = 1;    // censored at the event time
+    else { indet = true; return 0; }
   } else {
     indet = true;                    // both censored
     return 0;
@@ -230,6 +273,19 @@ inline PairProb pair_prob(double d, double gamma, double dl, bool est) {
   return r;
 }
 
+// Center the columns of X in place.  The Davidson likelihood depends only on
+// differences x_i - x_j, so this is a numerical no-op; it protects the O(p)
+// Hessian accumulation from cancellation when covariates have a large mean.
+// (The identity sum_i D_i x_i x_i' - sum_i x_i m_i' subtracts two terms that
+// both scale as mean(x)^2 while the answer scales as var(x).)
+inline void center_columns_inplace(MatrixXd& X) {
+  const int p = (int)X.cols();
+  for (int j = 0; j < p; ++j) {
+    const double m = X.col(j).mean();
+    if (m != 0.0) X.col(j).array() -= m;
+  }
+}
+
 }  // namespace
 
 
@@ -241,6 +297,15 @@ namespace {
 
 
 // Accumulates log-likelihood, gradient and (optionally) information over pairs.
+//
+// The pair-level negative Hessian contribution f_ij (x_i - x_j)(x_i - x_j)' is
+// accumulated via the identity
+//   sum_{i<j} f_ij (x_i - x_j)(x_i - x_j)'
+//     = sum_i D_i x_i x_i' - sum_i x_i m_i'
+// with D_i = sum_{j!=i} f_ij (a scalar per subject) and m_i = sum_{j!=i} f_ij x_j
+// (a p-vector per subject).  This makes the per-pair update O(p) instead of O(p^2).
+// The p x p Hessian is reassembled once in finish_eval() at cost O(N p^2).
+//
 // NB: accumulators of neighbouring chunks live next to each other in a std::vector.
 // The scalar fields are written for every pair, so they are padded to keep them on
 // separate cache lines from those of other chunks (avoids false sharing between threads).
@@ -248,14 +313,19 @@ struct EvalAcc {
   char pad_head_[128];
   int p = 0; bool est = false, hess = false;
   double ll = 0.0, sg = 0.0, hgg = 0.0;
-  std::vector<double> c, c2, Hbb, dx;
+  std::vector<double> c, c2;         // gradient scratch (N), tie-gradient scratch (N)
+  std::vector<double> D, m;          // per-subject f-sum (N), f-weighted x-sum (N*p)
   char pad_tail_[128];
 
   void init(int N, int p_, bool est_, bool hess_) {
     p = p_; est = est_; hess = hess_;
     ll = sg = hgg = 0.0;
     c.assign(N, 0.0);
-    if (hess) { c2.assign(N, 0.0); Hbb.assign((size_t)p * p, 0.0); dx.assign(p, 0.0); }
+    if (hess) {
+      c2.assign(N, 0.0);
+      D.assign(N, 0.0);
+      m.assign((size_t)N * p, 0.0);
+    }
   }
 
   inline void add(int a, int b, int wk, const double* eta, const double* xr,
@@ -273,11 +343,13 @@ struct EvalAcc {
       const double f = 0.25 * (4.0 * pw * pl + pt * (pw + pl));
       const double* xa = xr + (size_t)a * p;
       const double* xb = xr + (size_t)b * p;
-      for (int r = 0; r < p; ++r) dx[r] = xa[r] - xb[r];
+      D[a] += f;
+      D[b] += f;
+      double* ma = &m[(size_t)a * p];
+      double* mb = &m[(size_t)b * p];
       for (int r = 0; r < p; ++r) {
-        const double cf = f * dx[r];
-        double* row = &Hbb[(size_t)r * p];
-        for (int s2 = r; s2 < p; ++s2) row[s2] += cf * dx[s2];
+        ma[r] += f * xb[r];
+        mb[r] += f * xa[r];
       }
       if (est) {
         hgg += pt * (pw + pl);
@@ -293,7 +365,8 @@ struct EvalAcc {
     for (size_t k = 0; k < c.size(); ++k) c[k] += o.c[k];
     if (hess) {
       for (size_t k = 0; k < c2.size(); ++k) c2[k] += o.c2[k];
-      for (size_t k = 0; k < Hbb.size(); ++k) Hbb[k] += o.Hbb[k];
+      for (size_t k = 0; k < D.size();  ++k) D[k]  += o.D[k];
+      for (size_t k = 0; k < m.size();  ++k) m[k]  += o.m[k];
     }
   }
 };
@@ -309,11 +382,22 @@ void finish_eval(const EvalAcc& A, const MatrixXd& X, bool est,
   if (est) g[p] = A.sg;
   if (A.hess) {
     Hn = MatrixXd::Zero(np, np);
-    for (int r = 0; r < p; ++r)
-      for (int s2 = r; s2 < p; ++s2) {
-        Hn(r, s2) = A.Hbb[(size_t)r * p + s2];
-        Hn(s2, r) = Hn(r, s2);
+    // sum_i D_i x_i x_i' - sum_i x_i m_i'
+    for (int i = 0; i < N; ++i) {
+      const double Di = A.D[i];
+      const double* mi = &A.m[(size_t)i * p];
+      for (int r = 0; r < p; ++r) {
+        const double xir = X(i, r);
+        for (int s = 0; s < p; ++s) {
+          Hn(r, s) += Di * xir * X(i, s) - xir * mi[s];
+        }
       }
+    }
+    // Symmetrize the p x p block.  In exact arithmetic the accumulation is
+    // symmetric, but the order of operations for the -x_i m_i' term differs
+    // between the (r, s) and (s, r) entries, leaving residuals of order 1e-11.
+    Hn.topLeftCorner(p, p) =
+      0.5 * (Hn.topLeftCorner(p, p) + Hn.topLeftCorner(p, p).transpose());
     if (est) {
       const Eigen::Map<const VectorXd> c2(A.c2.data(), N);
       const VectorXd hbg = -(X.transpose() * c2);
@@ -416,6 +500,13 @@ List vcov_finish(const RowMat& IF, const MatrixXd& Hn, double nn, int N) {
 typedef std::function<void(const VectorXd&, double, bool, double&, VectorXd&, MatrixXd&)> EvalFn;
 
 // Levenberg-Marquardt maximisation; `ev` evaluates (loglik, gradient, -Hessian).
+//
+// Fusion.  Every evaluation is now a full pass (loglik + gradient + Hessian).
+// The accepted trial's result is cached and reused at the start of the next outer
+// iteration, so we never re-evaluate at a point we have just accepted.  The
+// post-loop pass that the previous version performed is also eliminated, because
+// the cached (ll, g, Hn) always reflect the current (beta, gamma) at the point
+// the loop exits.
 List lm_driver(const EvalFn& ev, const MatrixXd& X, bool est_delta,
                const VectorXd& beta_init, double log_delta_init,
                int max_iter, double tol, double lambda0, bool verbose) {
@@ -430,13 +521,14 @@ List lm_driver(const EvalFn& ev, const MatrixXd& X, bool est_delta,
 
   // Diagnostics ----------------------------------------------------------
   std::vector<int> trials_per_iter;   // inner-loop trials per outer iter
-  int n_full_evals = 0;               // gradient + Hessian
-  int n_grad_evals = 0;               // gradient only (line-search trials)
+  int n_full_evals = 0;               // number of full passes
   // ----------------------------------------------------------------------
 
+  // Initial full evaluation at (beta_init, log_delta_init).
+  ev(beta, gamma, true, ll, g, Hn);
+  ++n_full_evals;
+
   for (iter = 1; iter <= max_iter; ++iter) {
-    ev(beta, gamma, true, ll, g, Hn);
-    ++n_full_evals;
     grad_norm = g.cwiseAbs().maxCoeff() / (1.0 + std::fabs(ll));
     if (verbose && (iter <= 3 || iter % 10 == 0))
       Rcout << "  iter " << iter << ": loglik = " << ll
@@ -462,9 +554,11 @@ List lm_driver(const EvalFn& ev, const MatrixXd& X, bool est_delta,
           0.5 * (eta_try.maxCoeff() - eta_try.minCoeff()) > 100.0) {
         lambda *= 5.0; continue;
       }
-      double ll_try; VectorXd g_dummy; MatrixXd H_dummy;
-      ev(beta_try, gam_try, false, ll_try, g_dummy, H_dummy);
-      ++n_grad_evals;
+
+      // Fused trial: full (ll, g, Hn) at the candidate.
+      double ll_try; VectorXd g_try; MatrixXd Hn_try;
+      ev(beta_try, gam_try, true, ll_try, g_try, Hn_try);
+      ++n_full_evals;
 
       // Predicted reduction from the LM quadratic model:
       //   (H + lambda I) step = g  =>  pred = 0.5 * step' (g + lambda*step)
@@ -475,6 +569,8 @@ List lm_driver(const EvalFn& ev, const MatrixXd& X, bool est_delta,
 
       if (std::isfinite(ll_try) && ll_try > ll) {
         beta = beta_try; gamma = gam_try; ll_new = ll_try;
+        // Cache the accepted trial's full result for the next outer iteration.
+        g = g_try; Hn = Hn_try;
         // Nielsen gain-ratio shrink.
         const double shrink = 1.0 - std::pow(2.0 * rho - 1.0, 3.0);
         lambda *= std::max(shrink, 1.0 / 3.0);
@@ -487,14 +583,18 @@ List lm_driver(const EvalFn& ev, const MatrixXd& X, bool est_delta,
     trials_per_iter.push_back(tr_used);
 
     if (!accepted) { stalled = true; break; }
-    if ((ll_new - ll) / (1.0 + std::fabs(ll)) < tol && grad_norm < 1e-6) {
-      ll = ll_new; converged = true; break;
+    // Update ll for the post-step convergence check; g and Hn already reflect
+    // the accepted trial's state.
+    const double ll_old = ll;
+    ll = ll_new;
+    if ((ll - ll_old) / (1.0 + std::fabs(ll_old)) < tol && grad_norm < 1e-6) {
+      converged = true; break;
     }
   }
   if (iter > max_iter) iter = max_iter;
 
-  ev(beta, gamma, true, ll, g, Hn);
-  ++n_full_evals;
+  // No post-loop pass is needed: in every exit path the cached (ll, g, Hn)
+  // reflect the current (beta, gamma).
   grad_norm = g.cwiseAbs().maxCoeff() / (1.0 + std::fabs(ll));
   if (grad_norm < tol || (stalled && grad_norm < 1e-7)) converged = true;
 
@@ -509,7 +609,7 @@ List lm_driver(const EvalFn& ev, const MatrixXd& X, bool est_delta,
     _["neg_hessian"]   = Hn,
     _["trials_per_iter"] = wrap(trials_per_iter),
     _["n_full_evals"]  = n_full_evals,
-    _["n_grad_evals"]  = n_grad_evals);
+    _["n_grad_evals"]  = 0);   // every trial is now a full pass
 }
 
 // ---- stored-pair evaluators -------------------------------------------------
@@ -535,8 +635,9 @@ List cpp_btd_eval(const Eigen::Map<Eigen::MatrixXd> X,
                   IntegerVector id_i, IntegerVector id_j, IntegerVector w,
                   Eigen::VectorXd beta, double log_delta, bool est_delta,
                   bool need_hess) {
-  const MatrixXd Xm = X;
-  const RowMat Xr = X;
+  MatrixXd Xm = X;
+  center_columns_inplace(Xm);
+  const RowMat Xr = Xm;
   double ll; VectorXd g; MatrixXd Hn;
   eval_stored(Xr, Xm, id_i.begin(), id_j.begin(), w.begin(), (R_xlen_t)id_i.size(),
               beta, log_delta, est_delta, need_hess, ll, g, Hn);
@@ -549,8 +650,9 @@ List cpp_fit_btd(const Eigen::Map<Eigen::MatrixXd> X,
                  bool est_delta, Eigen::VectorXd beta_init, double log_delta_init,
                  int max_iter = 200, double tol = 1e-10, double lambda0 = 1e-6,
                  bool verbose = false) {
-  const MatrixXd Xm = X;
-  const RowMat Xr = X;
+  MatrixXd Xm = X;
+  center_columns_inplace(Xm);
+  const RowMat Xr = Xm;
   const int* ii = id_i.begin(); const int* jj = id_j.begin(); const int* ww = w.begin();
   const R_xlen_t n = (R_xlen_t)id_i.size();
   EvalFn ev = [&](const VectorXd& b, double gam, bool hess, double& ll,
@@ -568,8 +670,9 @@ List cpp_fit_btd(const Eigen::Map<Eigen::MatrixXd> X,
 List cpp_vcov_btd(const Eigen::Map<Eigen::MatrixXd> X,
                   IntegerVector id_i, IntegerVector id_j, IntegerVector w,
                   Eigen::VectorXd beta, double log_delta, bool est_delta) {
-  const MatrixXd Xm = X;
-  const RowMat Xr = X;
+  MatrixXd Xm = X;
+  center_columns_inplace(Xm);
+  const RowMat Xr = Xm;
   const int N = (int)X.rows(), p = (int)X.cols();
   const int* ii = id_i.begin(); const int* jj = id_j.begin(); const int* ww = w.begin();
   const R_xlen_t n = (R_xlen_t)id_i.size();
@@ -653,7 +756,7 @@ template <class Acc, class F>
 void stream_pairs(int N, const std::vector<int>& bd, int threads,
                   std::vector<Acc>& acc, F f) {
   const int nc = (int)bd.size() - 1;
-  const int nthr = std::max(1, threads);
+  const int nthr = clamp_threads(threads, nc);
   (void)nthr;
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(nthr) schedule(dynamic, 1)
@@ -685,7 +788,7 @@ void stream_pairs_if_tiled(int N, const std::vector<int>& bd, int threads,
                            double log_delta, double dl,
                            ScoreFn score) {
   const int nc = (int)bd.size() - 1;
-  const int nthr = std::max(1, threads);
+  const int nthr = clamp_threads(threads, nc);
   (void)nthr;
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(nthr) schedule(dynamic, 1)
@@ -788,8 +891,9 @@ List cpp_stream_fit(const Eigen::Map<Eigen::MatrixXd> X, List levels, NumericMat
                     bool est_delta, Eigen::VectorXd beta_init, double log_delta_init,
                     int max_iter = 200, double tol = 1e-10, double lambda0 = 1e-6,
                     bool verbose = false, int nchunk = 32, int threads = 1) {
-  const MatrixXd Xm = X;
-  const RowMat Xr = X;
+  MatrixXd Xm = X;
+  center_columns_inplace(Xm);
+  const RowMat Xr = Xm;
   const std::vector<LevelSpec> L = parse_levels(levels);
   const double* Vp = V.begin();
   EvalFn ev = [&](const VectorXd& b, double gam, bool hess, double& ll,
@@ -805,8 +909,9 @@ List cpp_stream_fit(const Eigen::Map<Eigen::MatrixXd> X, List levels, NumericMat
 List cpp_stream_vcov(const Eigen::Map<Eigen::MatrixXd> X, List levels, NumericMatrix V,
                      Eigen::VectorXd beta, double log_delta, bool est_delta,
                      int nchunk = 32, int threads = 1, int tile = 512) {
-  const MatrixXd Xm = X;
-  const RowMat Xr = X;
+  MatrixXd Xm = X;
+  center_columns_inplace(Xm);
+  const RowMat Xr = Xm;
   const int N = (int)X.rows(), p = (int)X.cols();
   const std::vector<LevelSpec> L = parse_levels(levels);
   const double* Vp = V.begin();
@@ -895,9 +1000,21 @@ List cpp_stream_calib(List levels, NumericMatrix V, NumericVector eta, double de
     const double d = 0.5 * (ep[i] - ep[j]);
     const PairProb pr = pair_prob(d, est ? std::log(delta) : 0.0, delta, est);
     if (lev < K) {
+      // Orient the pair so that the reference subject is the one with the higher fitted
+      // score. Row order is arbitrary, so "first-listed subject wins" carries no
+      // information about the model; "higher-scored subject wins" does.
+      // Pairs with equal fitted scores (identical covariate profiles) have no "higher"
+      // subject and count one half, as tied scores do in a concordance index.
       a.lv[lev * 3 + 0] += 1.0;
-      a.lv[lev * 3 + 1] += (w == 1) ? 1.0 : 0.0;
-      a.lv[lev * 3 + 2] += pr.pw / (pr.pw + pr.pl);
+      if (std::fabs(d) <= 1e-12) {
+        a.lv[lev * 3 + 1] += 0.5;
+        a.lv[lev * 3 + 2] += 0.5;
+      } else {
+        const bool i_high = (d > 0.0);
+        const bool high_wins = i_high ? (w == 1) : (w == -1);
+        a.lv[lev * 3 + 1] += high_wins ? 1.0 : 0.0;
+        a.lv[lev * 3 + 2] += (i_high ? pr.pw : pr.pl) / (pr.pw + pr.pl);
+      }
     }
     int f = (int)std::floor((d + dmax) / width);
     if (f < 0) f = 0; if (f >= nfine) f = nfine - 1;
@@ -938,7 +1055,7 @@ template <class Acc, class F>
 void stream_pairs_k(int N, const std::vector<int>& bd, int threads,
                     std::vector<Acc>& acc, F f) {
   const int nc = (int)bd.size() - 1;
-  const int nthr = std::max(1, threads);
+  const int nthr = clamp_threads(threads, nc);
   (void)nthr;
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(nthr) schedule(dynamic, 1)
@@ -969,7 +1086,7 @@ void eval_compact(const RowMat& Xr, const MatrixXd& X, const unsigned char* code
   finish_eval(acc[0], X, est, ll, g, Hn);
 }
 
-}  
+}  // namespace
 
 // Score every pair once and keep one byte per pair. Also returns the number of
 // pairs resolved at each level (length K+1), the number of pairs flagged by
@@ -1022,8 +1139,9 @@ List cpp_compact_fit(const Eigen::Map<Eigen::MatrixXd> X, RawVector codes,
                      bool est_delta, Eigen::VectorXd beta_init, double log_delta_init,
                      int max_iter = 200, double tol = 1e-10, double lambda0 = 1e-6,
                      bool verbose = false, int nchunk = 32, int threads = 1) {
-  const MatrixXd Xm = X;
-  const RowMat Xr = X;
+  MatrixXd Xm = X;
+  center_columns_inplace(Xm);
+  const RowMat Xr = Xm;
   const unsigned char* cp = (const unsigned char*)RAW(codes);
   EvalFn ev = [&](const VectorXd& b, double gam, bool hess, double& ll,
                   VectorXd& g, MatrixXd& Hn) {
@@ -1038,8 +1156,9 @@ List cpp_compact_fit(const Eigen::Map<Eigen::MatrixXd> X, RawVector codes,
 List cpp_compact_vcov(const Eigen::Map<Eigen::MatrixXd> X, RawVector codes,
                       Eigen::VectorXd beta, double log_delta, bool est_delta,
                       int nchunk = 32, int threads = 1, int tile = 512) {
-  const MatrixXd Xm = X;
-  const RowMat Xr = X;
+  MatrixXd Xm = X;
+  center_columns_inplace(Xm);
+  const RowMat Xr = Xm;
   const int N = (int)X.rows(), p = (int)X.cols();
   const unsigned char* cp = (const unsigned char*)RAW(codes);
 

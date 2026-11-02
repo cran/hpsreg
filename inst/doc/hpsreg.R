@@ -31,6 +31,14 @@ win_stats(pw, dat$year)
 ## -----------------------------------------------------------------------------
 win_stats(h, dat$year, data = dat)
 
+## ----win-text, include = FALSE------------------------------------------------
+ws  <- win_stats(pw, dat$year)
+nb  <- ws$table[ws$table$statistic == "net_benefit", ]
+bl  <- ws$by_level[-nrow(ws$by_level), ]
+bl$net <- bl$treatment_wins - bl$treatment_losses
+pos <- as.character(bl$level[which.max(bl$net)])
+neg <- as.character(bl$level[which.min(bl$net)])
+
 ## -----------------------------------------------------------------------------
 fit <- btd(~ donor_type + age + dri, data = dat, pairs = pw)
 summary(fit)
@@ -52,16 +60,16 @@ btd_calibration(fit, by = "level")
 plot(btd_calibration(fit, by = "level"))
 
 ## ----eval = FALSE-------------------------------------------------------------
-# fit <- btd(~ donor_type + age, data = dat, hierarchy = h, storage = "compact")
+#  fit <- btd(~ donor_type + age, data = dat, hierarchy = h, storage = "compact")
 
 ## -----------------------------------------------------------------------------
 openmp_threads()
 
 ## ----eval = FALSE-------------------------------------------------------------
-# fit_mt <- btd(~ donor_type + age, data = dat, hierarchy = h,
-#               control = btd_control(threads = 4))
-# 
-# options(hpsreg.threads = 4)          # applies to every subsequent call
-# fit_mt2 <- btd(~ donor_type + age, data = dat, hierarchy = h)
-# all.equal(coef(fit_mt), coef(fit_mt2))
+#  fit_mt <- btd(~ donor_type + age, data = dat, hierarchy = h,
+#                control = btd_control(threads = 4))
+#  
+#  options(hpsreg.threads = 4)          # applies to every subsequent call
+#  fit_mt2 <- btd(~ donor_type + age, data = dat, hierarchy = h)
+#  all.equal(coef(fit_mt), coef(fit_mt2))
 

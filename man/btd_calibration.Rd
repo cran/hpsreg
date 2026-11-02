@@ -17,7 +17,7 @@ btd_calibration(object, by = c("level", "bin"), n_bins = 10L)
 A \code{btd_calibration} object (a data frame with additional
 attributes) with columns
 \itemize{
-\item \code{by = "level"}: \code{level}, \code{n}, \code{obs_win_i}, \code{pred_win_i}.
+\item \code{by = "level"}: \code{level}, \code{n}, \code{obs_win_higher}, \code{pred_win_higher}.
 \item \code{by = "bin"}: \code{bin}, \code{n}, \code{obs_win_i}, \code{pred_win_i}, \code{obs_tie},
 \code{pred_tie}, \code{obs_win_j}, \code{pred_win_j}.
 }
@@ -28,10 +28,20 @@ probabilities.
 }
 \details{
 \itemize{
-\item \code{by = "level"}: among pairs \emph{decided} at each hierarchy level, the observed
-share won by the first-listed subject versus the model's
-\eqn{P(i)/(P(i)+P(j))}. Systematic differences between levels suggest that
-a single latent scale does not describe all levels.
+\item \code{by = "level"}: among pairs \emph{decided} at each hierarchy level, each pair is
+oriented so that the "higher" subject is the one with the larger fitted
+score, and the observed share won by the higher subject is compared with
+the model's \eqn{P(\mathrm{higher})/(P(\mathrm{higher})+P(\mathrm{lower}))}.
+This asks how well the latent score predicts the winner at each level; 0.5
+would mean no predictive value. A level whose observed share is well below
+(above) its prediction is one where the covariates rank patients less (more)
+sharply than the model implies, which suggests that a single latent scale
+does not describe all levels. Pairs are oriented by the fitted score because
+their order in the data is arbitrary: the share won by the first-listed
+subject depends on row order and not on the model. Pairs whose fitted scores
+are equal (identical covariate profiles) count one half. Tied pairs are not
+decided at any level and do not enter this table; the tie model is checked
+with \code{by = "bin"}.
 \item \code{by = "bin"}: pairs are grouped by quantiles of the predicted latent
 difference; observed and predicted win / tie / loss fractions are compared.
 For fits made with streaming (no stored pairs) the bins are approximate

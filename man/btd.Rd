@@ -68,13 +68,17 @@ log scale.}
 \value{
 An object of class \code{btd} with \code{coefficients}, \code{log_delta}, \code{delta},
 \code{vcov} (sandwich, on the original covariate scale, including \code{log_delta}),
-\code{vcov_model}, \code{loglik}, convergence information, the latent scores \code{eta}
+\code{vcov_model}, \code{loglik}, convergence information, the latent scores \code{eta},
+\code{latent_range} (the largest fitted log-odds of a decisive win between two
+subjects; very large values signal (quasi-)separation and trigger a warning)
 and the pairs used.
 
 The object supports the usual generics: \code{summary()} (coefficient table
 with z-tests), \code{coef()}, \code{vcov()} (\code{model = TRUE} for the model-based
 information), \code{confint()} (Wald intervals), \code{logLik()}, \code{nobs()}
-(number of pairs; the subject count is \code{fit$n_subjects}), \code{print()}, and
+(number of pairs; the subject count is \code{fit$n_subjects}; because pairs
+sharing a subject are dependent, \code{AIC()} and \code{BIC()} computed from this
+pairwise likelihood are not valid model-selection criteria), \code{print()}, and
 \code{predict()} (latent score for the training rows, or for a \code{newdata} frame).
 
 Pair-level predicted probabilities are provided by \code{\link[=btd_pair_probs]{btd_pair_probs()}};
@@ -115,7 +119,8 @@ you; the pairs are kept in the fitted object (\code{fit$pairs}) for later use.
 }
 
 In both cases \code{data} must be the same data frame (same rows, same order)
-that is scored.
+that is scored. Pairs scored by \code{\link[=score_pairs]{score_pairs()}} carry a fingerprint of the
+outcome data, and \code{btd()} stops with an error if \code{data} does not match it.
 }
 
 \examples{

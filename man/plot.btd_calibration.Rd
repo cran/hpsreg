@@ -22,10 +22,12 @@ of \code{\link[=btd_calibration]{btd_calibration()}}:
 }
 \details{
 \itemize{
-\item \code{by = "level"}: a dot plot with one row per hierarchy level, showing
-the observed and predicted win share for pairs resolved at that level.
-Lines of agreement between the two are what a well-calibrated hierarchy
-should look like.
+\item \code{by = "level"}: a dot plot with one row per hierarchy level (labelled
+with the number of pairs decided there), showing the observed and
+predicted share of pairs won by the higher-scored subject among pairs
+decided at that level. Observed and predicted points close together on
+every row are what a single latent scale implies; the dashed line at 0.5
+marks no predictive value.
 \item \code{by = "bin"}: three line plots (win, tie, loss) of observed against
 predicted probabilities across quantile bins of the latent difference
 \code{d}.

@@ -62,7 +62,7 @@ Worked examples (installed under `system.file("examples", package = "hpsreg")`):
 ## Install
 
 ```sh
-R CMD INSTALL hpsreg_0.1.0.tar.gz     # needs a C++ toolchain; Rcpp and RcppEigen
+R CMD INSTALL hpsreg_1.0.4.tar.gz     # needs a C++ toolchain; Rcpp and RcppEigen
 ```
 
 ## Large N: compact and streaming storage
@@ -106,4 +106,3 @@ toolchain); everything then runs single-threaded.
 * Cross-arm-only pair sets with matching variance theory are not implemented.
 * One tie parameter is shared by all levels; use `btd_calibration()` to check the single
   latent-scale assumption. Thresholds and censoring can make pairwise relations intransitive.
-* The maintainer e-mail in `DESCRIPTION` is a placeholder.

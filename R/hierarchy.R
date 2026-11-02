@@ -35,8 +35,14 @@
 #' (1 = event, 0 = censored) pairs are compared with the Gehan rule: a pair is
 #' decided only if the ordering is certain under right censoring, otherwise it
 #' is *uninformative* and passed to the next level (and flagged, see
-#' [score_pairs()]). Follow-up beyond `horizon` is truncated and treated as
-#' complete at `horizon`. This rule is simple and biased toward the null under
+#' [score_pairs()]). When an event and a censoring occur at the same time (and
+#' `threshold = 0`), the usual convention is applied by default: the censored
+#' subject is taken to have outlived the event (`same_time = "censored_later"`);
+#' `same_time = "uninformative"` passes such pairs to the next level instead.
+#' Follow-up is truncated at `horizon`: a subject followed beyond it (or censored
+#' exactly at it) without the event is event-free through the horizon, beats every
+#' subject with an event at or before the horizon, and ties with other such
+#' subjects. An event exactly at the horizon is still an event. This rule is simple and biased toward the null under
 #' heavy censoring; inverse-probability-of-censoring scoring is not yet
 #' implemented.
 #'
@@ -53,6 +59,10 @@
 #' @param time,status Names of the time and event-status columns
 #'   (`lvl_tte()`); see Details.
 #' @param horizon Administrative horizon for time-to-event levels.
+#' @param same_time For `lvl_tte()` with a `status` column: how a pair is
+#'   scored when one subject has the event and the other is censored at the same
+#'   time. `"censored_later"` (default) treats the censored subject as having
+#'   outlived the event; `"uninformative"` passes the pair to the next level.
 #' @param when Optional eligibility guard, an expression, formula or string.
 #' @param name Label used in printed output and resolution tables.
 #' @param na How to treat a missing value in exactly one subject (see below).
@@ -146,7 +156,9 @@ lvl_continuous <- function(var, better, threshold = 0, when = NULL,
 #' @rdname hb_levels
 #' @export
 lvl_tte <- function(time, status = NULL, better, horizon = Inf, threshold = 0,
-                    when = NULL, name = time) {
+                    when = NULL, name = time,
+                    same_time = c("censored_later", "uninformative")) {
+  same_time <- match.arg(same_time)
   .check_scalar_chr(time, "time")
   if (!is.null(status)) .check_scalar_chr(status, "status")
   better <- .check_better(better, c("later", "earlier"))
@@ -156,7 +168,7 @@ lvl_tte <- function(time, status = NULL, better, horizon = Inf, threshold = 0,
   force(name)
   .new_level("tte", name, time, w, status = status, better = better,
              horizon = horizon, threshold = .check_threshold(threshold),
-             na = "tie")
+             na = "tie", same_time = same_time)
 }
 
 #' @rdname hb_levels
@@ -321,6 +333,10 @@ print.hb_group <- function(x, ...) {
   x <- .get_col(data, lf$var, lf$name)
   switch(lf$type,
     binary = {
+      if (!any(x[!is.na(x)] == lf$favorable))
+        warning("Level '", lf$name, "': the favourable value ", format(lf$favorable),
+                " does not occur in '", lf$var, "', so this level never separates a pair.",
+                call. = FALSE)
       as.numeric(x == lf$favorable)
     },
     ordinal = {
@@ -332,7 +348,12 @@ print.hb_group <- function(x, ...) {
           stop("Level '", lf$name, "': values of '", lf$var,
                "' not covered by `order`.", call. = FALSE)
         as.numeric(f)
-      } else as.numeric(x)
+      } else {
+        if (!is.null(lf$order))
+          warning("Level '", lf$name, "': `order` is ignored for the numeric column '",
+                  lf$var, "', which is compared by its values.", call. = FALSE)
+        as.numeric(x)
+      }
     },
     continuous = as.numeric(x),
     stop("internal: unexpected level type"))
@@ -342,11 +363,15 @@ print.hb_group <- function(x, ...) {
   N <- nrow(data)
   tt  <- as.numeric(.get_col(data, lf$var, lf$name))
   tau <- lf$horizon
+  ## Subjects known to be event-free through the horizon are coded as an exactly observed
+  ## time of Inf: they beat every event at or before the horizon and tie with each other.
+  ## An event exactly at the horizon therefore remains an event (consistent with
+  ## hps_cox_grfs(), which counts events with time <= horizon).
   if (is.null(lf$status)) {
     e <- rep(1, N)
     t <- tt
-    t[is.na(t)] <- tau
-    t[t > tau]  <- tau
+    t[is.na(t)] <- Inf               # the event did not occur
+    t[t > tau]  <- Inf               # the event occurred after the horizon
   } else {
     st <- .get_col(data, lf$status, paste0(lf$name, " status"))
     if (is.logical(st)) st <- as.numeric(st)
@@ -355,8 +380,9 @@ print.hb_group <- function(x, ...) {
            call. = FALSE)
     e <- as.numeric(st)
     t <- tt
-    beyond <- !is.na(t) & t >= tau
-    t[beyond] <- tau
+    ## followed beyond the horizon, or censored exactly at it: event-free through the horizon
+    beyond <- !is.na(t) & !is.na(e) & (t > tau | (t == tau & e == 0))
+    t[beyond] <- Inf
     e[beyond] <- 1
     t[is.na(e)] <- NA_real_
   }
@@ -399,7 +425,8 @@ print.hb_group <- function(x, ...) {
       specs[[k]] <- list(kind = "cpp", type = 2L, col = add_col(tv$t),
                          col2 = add_col(tv$e), elig = elig, na_rule = 0L,
                          sign = if (lf$better == "later") 1 else -1,
-                         thr = lf$threshold)
+                         thr = lf$threshold,
+                         ctie = as.integer(!identical(lf$same_time, "uninformative")))
     } else {
       v <- .numeric_values(lf, data)
       better <- if (lf$type == "binary") "higher" else lf$better
@@ -407,7 +434,7 @@ print.hb_group <- function(x, ...) {
                          col2 = -1L, elig = elig,
                          na_rule = match(lf$na, c("tie", "best", "worst")) - 1L,
                          sign = if (better == "higher") 1 else -1,
-                         thr = lf$threshold)
+                         thr = lf$threshold, ctie = 0L)
     }
   }
   V <- if (length(cols)) do.call(cbind, cols) else matrix(0, N, 1L)
@@ -429,7 +456,7 @@ print.hb_group <- function(x, ...) {
       segments[[length(segments) + 1L]] <- list(
         kind = "cpp", leaf_idx = idx,
         specs = lapply(specs[idx], function(s) s[c("type", "col", "col2", "elig",
-                                                   "na_rule", "sign", "thr")]))
+                                                   "na_rule", "sign", "thr", "ctie")]))
       k <- idx[length(idx)] + 1L
     }
   }
@@ -447,7 +474,11 @@ print.hb_group <- function(x, ...) {
 .n_threads <- function(control = NULL) {
   t <- control$threads
   if (is.null(t)) t <- getOption("hpsreg.threads", 1L)
-  as.integer(max(1L, t))
+  if (!is.numeric(t) || length(t) != 1L || is.na(t))
+    stop("The number of threads must be a single number.", call. = FALSE)
+  ## more threads than chunks has no benefit; the C++ engine also caps at the number of
+  ## processors
+  as.integer(min(max(1, floor(t)), .NCHUNK))
 }
 
 #' OpenMP availability
@@ -462,3 +493,15 @@ print.hb_group <- function(x, ...) {
 #' openmp_threads()
 #' @export
 openmp_threads <- function() cpp_openmp_threads()
+
+## A fingerprint of the compiled outcome data: order-sensitive weighted column sums. It is
+## stored by score_pairs() and checked by btd() so that pairs scored on one data frame are
+## not silently applied to a different (reordered, subset or edited) one.
+.fingerprint <- function(V) {
+  V <- as.matrix(V)
+  V[is.na(V)] <- -7.5e7
+  V[V ==  Inf] <-  9.25e7
+  V[V == -Inf] <- -9.25e7
+  w <- cos(seq_len(nrow(V)))
+  c(n = nrow(V), colSums(V * w), colSums(V))
+}

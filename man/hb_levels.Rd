@@ -30,7 +30,8 @@ lvl_tte(
   horizon = Inf,
   threshold = 0,
   when = NULL,
-  name = time
+  name = time,
+  same_time = c("censored_later", "uninformative")
 )
 
 lvl_custom(fun, name = "custom", when = NULL)
@@ -61,6 +62,11 @@ as ties (clinically meaningful difference).}
 (\code{lvl_tte()}); see Details.}
 
 \item{horizon}{Administrative horizon for time-to-event levels.}
+
+\item{same_time}{For \code{lvl_tte()} with a \code{status} column: how a pair is
+scored when one subject has the event and the other is censored at the same
+time. \code{"censored_later"} (default) treats the censored subject as having
+outlived the event; \code{"uninformative"} passes the pair to the next level.}
 
 \item{fun}{For \code{lvl_custom()}: a function \verb{function(data, i, j)} returning,
 for the pairs \verb{(i[k], j[k])}, a vector in \verb{\{-1, 0, 1\}} (1 = subject \code{i}
@@ -102,8 +108,14 @@ non-events are placed at \code{horizon} (or infinity). With a \code{status} colu
 (1 = event, 0 = censored) pairs are compared with the Gehan rule: a pair is
 decided only if the ordering is certain under right censoring, otherwise it
 is \emph{uninformative} and passed to the next level (and flagged, see
-\code{\link[=score_pairs]{score_pairs()}}). Follow-up beyond \code{horizon} is truncated and treated as
-complete at \code{horizon}. This rule is simple and biased toward the null under
+\code{\link[=score_pairs]{score_pairs()}}). When an event and a censoring occur at the same time (and
+\code{threshold = 0}), the usual convention is applied by default: the censored
+subject is taken to have outlived the event (\code{same_time = "censored_later"});
+\code{same_time = "uninformative"} passes such pairs to the next level instead.
+Follow-up is truncated at \code{horizon}: a subject followed beyond it (or censored
+exactly at it) without the event is event-free through the horizon, beats every
+subject with an event at or before the horizon, and ties with other such
+subjects. An event exactly at the horizon is still an event. This rule is simple and biased toward the null under
 heavy censoring; inverse-probability-of-censoring scoring is not yet
 implemented.
 }

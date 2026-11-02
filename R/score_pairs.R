@@ -113,7 +113,7 @@ score_pairs <- function(hierarchy, data, pairs = NULL, max_pairs = 5e7) {
   structure(list(id_i = ids$i, id_j = ids$j, W = W, level = level,
                  leaf = if (hierarchy$grouped) leaf else NULL,
                  uninf = uninf, N = N, complete = complete,
-                 hierarchy = hierarchy),
+                 hierarchy = hierarchy, fingerprint = .fingerprint(comp$V)),
             class = "hb_pairs")
 }
 

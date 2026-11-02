@@ -2,7 +2,7 @@ Package: hpsreg
 Type: Package
 Title: Regression for Hierarchically Ordered Clinical Outcomes via
         Pairwise Comparisons (Bradley-Terry-Davidson Model)
-Version: 1.0.0
+Version: 1.0.4
 Authors@R: person("Ravi", "Varadhan", role = c("aut", "cre"), email = "ravi.varadhan@jhu.edu")
 Description: Provides regression for hierarchically ordered clinical
     outcomes via pairwise comparisons, using a covariate-adjusted
@@ -26,8 +26,8 @@ SystemRequirements: OpenMP (optional)
 Config/testthat/edition: 3
 RoxygenNote: 7.3.3
 NeedsCompilation: yes
-Packaged: 2026-10-08 18:24:04 UTC; raviv
 Author: Ravi Varadhan [aut, cre]
 Maintainer: Ravi Varadhan <ravi.varadhan@jhu.edu>
+Packaged: 2026-11-02 15:52:02 UTC; root
 Repository: CRAN
-Date/Publication: 2026-10-20 17:50:14 UTC
+Date/Publication: 2026-11-02 16:40:10 UTC
